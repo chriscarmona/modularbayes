@@ -1,0 +1,7 @@
+ipykernel
+ipywidgets
+jupyterlab
+matplotlib
+plotly
+seaborn
+tensorboard

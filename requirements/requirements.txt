@@ -1,0 +1,15 @@
+absl-py
+arviz
+chex
+clu
+distrax
+dm-haiku
+jax<=0.2.21  # remove once TFP is compatible with JAX>=0.2.22
+jaxlib
+matplotlib
+ml-collections
+numpy
+optax
+pandas
+seaborn
+sklearn

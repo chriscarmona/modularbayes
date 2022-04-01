@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+testpaths = "test"
+addopts = "-v --doctest-modules --color=yes --cov=src --cov-report term-missing"
+filterwarnings = [
+    "ignore::DeprecationWarning:tensorboard.*:",
+    "ignore::DeprecationWarning:flatbuffers.*:",
+]

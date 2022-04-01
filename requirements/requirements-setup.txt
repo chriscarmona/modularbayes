@@ -1,0 +1,4 @@
+mypy
+setuptools
+setuptools_scm[toml]
+wheel
