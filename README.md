@@ -3,6 +3,8 @@
 <!-- badges: start -->
 [![License:
 MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/chriscarmona/modularbayes/blob/main/LICENSE)
+[![DOI:10.48550/arXiv.2204.00296](https://zenodo.org/badge/DOI/10.48550/arXiv.2204.00296.svg)](https://doi.org/10.48550/arXiv.2204.00296)
+[![arXiv](https://img.shields.io/badge/arXiv-2003.06804-b31b1b.svg)](https://arxiv.org/abs/2204.00296)
 <!-- badges: end -->
 
 This repo contain the implementation of variational methods described in the article *Scalable Semi-Modular Inference with Variational Meta-Posteriors*.
@@ -53,10 +55,14 @@ If you find this work relevant for your scientific publication, we encourage you
 
 ```bibtex
 @misc{Carmona2022scalable,
-  author = {Carmona, Chris U. and Nicholls, Geoff K.},
-  title = {Scalable Semi-Modular Inference with Variational Meta-Posteriors},
-  url = {https://www.github.com/chriscarmona/modularbayes},
-  year = {2022}
+    title = {{Scalable Semi-Modular Inference with Variational Meta-Posteriors}},
+    year = {2022},
+    author = {Carmona, Chris U and Nicholls, Geoff K},
+    month = {4},
+    url = {https://github.com/chriscarmona/modularbayes http://arxiv.org/abs/2204.00296},
+    doi = {10.48550/arXiv.2204.00296},
+    arxivId = {2204.00296},
+    keywords = {Cut models, Generalized Bayes, Model misspecification, Scalable inference, Variational Bayes}
 }
 
 @InProceedings{Carmona2020smi,

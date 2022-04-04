@@ -26,26 +26,26 @@ python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidem
                                                --workdir=$WORK_DIR/epidemiology/nsf/eta \
                                                --config.iterate_smi_eta=$eta
 ## Variational Meta-Posterior
-### Mean field, initialized on trained eta=0.100
+### Mean field, initialized on trained eta=0.001
 python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_mf_vmp_map_gp.py \
                                                --workdir=$WORK_DIR/epidemiology/mean_field/vmp_map_gp \
-                                               --config.state_flow_init_path=$WORK_DIR/epidemiology/mean_field/eta_0.100/checkpoints/ckpt_010000
+                                               --config.state_flow_init_path=$WORK_DIR/epidemiology/mean_field/eta_0.001/checkpoints/ckpt_010000
 python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_mf_vmp_map_spline.py \
                                                --workdir=$WORK_DIR/epidemiology/mean_field/vmp_map_spline \
-                                               --config.state_flow_init_path=$WORK_DIR/epidemiology/mean_field/eta_0.100/checkpoints/ckpt_010000
+                                               --config.state_flow_init_path=$WORK_DIR/epidemiology/mean_field/eta_0.001/checkpoints/ckpt_010000
 python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_mf_vmp_map_mlp.py \
                                                --workdir=$WORK_DIR/epidemiology/mean_field/vmp_map_mlp \
-                                               --config.state_flow_init_path=$WORK_DIR/epidemiology/mean_field/eta_0.100/checkpoints/ckpt_010000
+                                               --config.state_flow_init_path=$WORK_DIR/epidemiology/mean_field/eta_0.001/checkpoints/ckpt_010000
 ### Neural Spline Flow, initialized on trained eta=0.100
 python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_nsf_vmp_map_gp.py \
                                                --workdir=$WORK_DIR/epidemiology/nsf/vmp_map_gp \
-                                               --config.state_flow_init_path=$WORK_DIR/epidemiology/nsf/eta_0.100/checkpoints/ckpt_020000
+                                               --config.state_flow_init_path=$WORK_DIR/epidemiology/nsf/eta_0.001/checkpoints/ckpt_020000
 python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_nsf_vmp_map_spline.py \
                                                --workdir=$WORK_DIR/epidemiology/nsf/vmp_map_spline \
-                                               --config.state_flow_init_path=$WORK_DIR/epidemiology/nsf/eta_0.100/checkpoints/ckpt_020000
+                                               --config.state_flow_init_path=$WORK_DIR/epidemiology/nsf/eta_0.001/checkpoints/ckpt_020000
 python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_nsf_vmp_map_mlp.py \
                                                --workdir=$WORK_DIR/epidemiology/nsf/vmp_map_mlp \
-                                               --config.state_flow_init_path=$WORK_DIR/epidemiology/nsf/eta_0.100/checkpoints/ckpt_020000
+                                               --config.state_flow_init_path=$WORK_DIR/epidemiology/nsf/eta_0.001/checkpoints/ckpt_020000
 
 # Random Effects
 ## MCMC
