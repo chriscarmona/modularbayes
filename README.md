@@ -41,7 +41,7 @@ tensorboard --logdir=$WORK_DIR
 2. Install JAX. This may vary according to your CUDA version (See [JAX installation](https://github.com/google/jax#installation)).
 3. Clone this repository locally
 ```bash
-git clone https://github.com/chriscarmona/modularbayes
+git clone https://github.com/chriscarmona/modularbayes.git
 ```
 4. Install the `modularbayes` module
 ```bash
@@ -55,11 +55,11 @@ If you find this work relevant for your scientific publication, we encourage you
 
 ```bibtex
 @misc{Carmona2022scalable,
-    title = {{Scalable Semi-Modular Inference with Variational Meta-Posteriors}},
+    title = {Scalable Semi-Modular Inference with Variational Meta-Posteriors},
     year = {2022},
-    author = {Carmona, Chris U and Nicholls, Geoff K},
+    author = {Carmona, Chris U. and Nicholls, Geoff K.},
     month = {4},
-    url = {https://github.com/chriscarmona/modularbayes http://arxiv.org/abs/2204.00296},
+    url = {http://arxiv.org/abs/2204.00296},
     doi = {10.48550/arXiv.2204.00296},
     arxivId = {2204.00296},
     keywords = {Cut models, Generalized Bayes, Model misspecification, Scalable inference, Variational Bayes}
