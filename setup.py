@@ -51,7 +51,7 @@ setup(
     package_dir={"": "src"},
     packages=find_namespace_packages(where=str(SRC), include=["modularbayes*"]),
     # packages=find_namespace_packages(exclude=['*_test.py']),
-    python_requires='>=3.6',
+    python_requires='>=3.8',
     classifiers=[
         'Development Status :: 1 - Planning',
         'Environment :: Console',
