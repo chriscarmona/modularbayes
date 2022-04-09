@@ -17,7 +17,6 @@ from flax.metrics import tensorboard
 
 import haiku as hk
 
-import flows
 import log_prob_fun
 import plot
 
@@ -120,7 +119,8 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
   target_log_prob_fn = lambda state: log_prob_fn(
       batch=train_ds,
       model_params=state,
-      smi_eta_modules=smi_eta['modules'] if smi_eta is not None else None,
+      smi_eta_modules=jnp.array(smi_eta['modules'])
+      if smi_eta is not None else None,
       model_params_init=posterior_sample_dict_init,
   )
 
@@ -277,3 +277,11 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
   # axs[1].plot(states[:, j])
 
   return posterior_sample_dict
+
+
+# # For debugging
+# config = get_config()
+# eta = 0.001
+# config.smi_eta = {'modules': [[1.0, eta]]}
+# workdir = pathlib.Path.home() / f'smi/output/epidemiology/mcmc/eta_{eta:.3f}'
+# sample_and_evaluate(config, workdir)

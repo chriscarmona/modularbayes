@@ -763,6 +763,18 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   )
   update_states_jit = jax.jit(update_states_jit)
 
+  elbo_validation_jit = lambda state_list, batch, prng_key: elbo_estimate_along_eta(
+      params_tuple=tuple(state.params for state in state_list),
+      batch=batch,
+      prng_key=prng_key,
+      num_samples=config.num_samples_eval,
+      flow_name=config.flow_name,
+      flow_kwargs=config.flow_kwargs,
+      eta_sampling_a=1.,
+      eta_sampling_b=1.,
+  )
+  elbo_validation_jit = jax.jit(elbo_validation_jit)
+
   # elpd waic as a loss function to optimize eta
   loss_neg_elpd = lambda eta, batch, prng_key, state_list_vmp: -elpd_estimate_one_eta(
       state_list=state_list_vmp,
@@ -844,16 +856,16 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       logging.info("STEP: %5d; training loss: %.3f", state_list[0].step - 1,
                    metrics["train_loss"])
 
-    if state_list[0].step % 100 == 0:
-      elbo_validation_dict = elbo_estimate_along_eta(
-          params_tuple=tuple(state.params for state in state_list),
+    # Metrics for evaluation
+    if state_list[0].step % config.eval_steps == 0:
+
+      logging.info("STEP: %5d; training loss: %.3f", state_list[0].step - 1,
+                   metrics["train_loss"])
+
+      elbo_validation_dict = elbo_validation_jit(
+          state_list=state_list,
           batch=train_ds,
           prng_key=next(prng_seq),
-          num_samples=config.num_samples_eval,
-          flow_name=config.flow_name,
-          flow_kwargs=config.flow_kwargs,
-          eta_sampling_a=1.,
-          eta_sampling_b=1.,
       )
       for k, v in elbo_validation_dict.items():
         summary_writer.scalar(

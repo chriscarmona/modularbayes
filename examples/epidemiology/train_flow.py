@@ -528,7 +528,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
 # # For debugging
 # config = get_config()
-# eta_y = 0.001
-# config.flow_kwargs.smi_eta = {'modules': [[1.0, eta_y]]}
-# workdir = pathlib.Path.home() / 'smi/output/epidemiology/spline_eta_y_0.001'
+# eta = 0.001
+# config.flow_kwargs.smi_eta = {'modules': [[1.0, eta]]}
+# workdir = pathlib.Path.home() / f'smi/output/epidemiology/spline_eta_y_{eta:.3f}'
 # train_and_evaluate(config, workdir)
