@@ -972,8 +972,6 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   #         step=eta_star_state.step - 1,
   #     )
 
-  breakpoint()
-
   # Saving checkpoint at the end of the training process
   # (in case training_steps is not multiple of checkpoint_steps)
   if save_after_training:
@@ -997,12 +995,12 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       workdir_png=workdir,
   )
 
-  maximize_elpd(
-      state_list=state_list,
-      batch=train_ds,
-      prng_key=next(prng_seq),
-      config=config,
-      num_samples_elpd=config.num_samples_elpd,
-  )
+  # maximize_elpd(
+  #     state_list=state_list,
+  #     batch=train_ds,
+  #     prng_key=next(prng_seq),
+  #     config=config,
+  #     num_samples_elpd=config.num_samples_elpd,
+  # )
 
   return state_list

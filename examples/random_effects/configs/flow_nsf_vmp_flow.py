@@ -51,9 +51,9 @@ def get_config():
   config.optim_kwargs.lr_schedule_kwargs = ml_collections.ConfigDict()
   config.optim_kwargs.lr_schedule_kwargs = {
       'init_value': 0.,
-      'peak_value': 5e-4,
-      'warmup_steps': 5_000,
-      'transition_steps': 20_000,
+      'peak_value': 3e-3,
+      'warmup_steps': 3_000,
+      'transition_steps': 10_000,
       'decay_rate': 0.5,
       'transition_begin': 0,
       'staircase': False,
