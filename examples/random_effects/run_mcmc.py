@@ -288,13 +288,3 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
   # axs[1].plot(posterior_sample_dict['beta'][:, j])
 
   return posterior_sample_dict
-
-
-# # For debugging
-# import pathlib
-# config = get_config()
-# config.smi_eta = {
-#     'groups': [0., 0.] + [1.0 for _ in range(config.num_groups - 2)]
-# }
-# workdir = pathlib.Path.home() / 'smi/output/debug'
-# sample_and_evaluate(config, workdir)

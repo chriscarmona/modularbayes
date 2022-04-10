@@ -22,11 +22,11 @@ def get_config():
   config.flow_kwargs = ml_collections.ConfigDict()
   # Number of layers to use in the flow.
   config.flow_kwargs.num_layers = 8
+  # Hidden sizes
   # Hidden sizes of the MLP conditioner.
   config.flow_kwargs.hidden_sizes_conditioner = [30] * 3 + [10]
   # Hidden sizes of the MLP conditioner for eta.
-  eta_dim = config.num_groups
-  config.flow_kwargs.hidden_sizes_conditioner_eta = [eta_dim * 5] * 5 + [20]
+  config.flow_kwargs.hidden_sizes_conditioner_eta = [30] * 3 + [10]
   # Number of bins to use in the rational-quadratic spline.
   config.flow_kwargs.num_bins = 10
   # the lower bound of the spline's range
@@ -38,7 +38,7 @@ def get_config():
   config.num_samples_eval = 10_000
 
   # Number of training steps to run.
-  config.training_steps = 100_000
+  config.training_steps = 50_000
 
   # Number of SGD steps to find the best eta
   config.eta_star_steps = 5_000
@@ -65,7 +65,7 @@ def get_config():
   config.optim_kwargs_eta.learning_rate = 1e-4
 
   # How often to evaluate the model.
-  config.eval_steps = int(config.training_steps / 20)
+  config.eval_steps = int(config.training_steps / 10)
 
   # Initial seed for random numbers.
   config.seed = 123

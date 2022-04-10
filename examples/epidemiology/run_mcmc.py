@@ -277,11 +277,3 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
   # axs[1].plot(states[:, j])
 
   return posterior_sample_dict
-
-
-# # For debugging
-# config = get_config()
-# eta = 0.001
-# config.smi_eta = {'modules': [[1.0, eta]]}
-# workdir = pathlib.Path.home() / f'smi/output/epidemiology/mcmc/eta_{eta:.3f}'
-# sample_and_evaluate(config, workdir)

@@ -29,7 +29,7 @@ def get_config():
   config.num_samples_elbo = 100
 
   # Number of training steps to run.
-  config.training_steps = 30_000
+  config.training_steps = 20_000
 
   # Optimizer.
   config.optim_kwargs = ml_collections.ConfigDict()
@@ -38,17 +38,17 @@ def get_config():
   config.optim_kwargs.lr_schedule_kwargs = ml_collections.ConfigDict()
   config.optim_kwargs.lr_schedule_kwargs = {
       'init_value': 0.,
-      'peak_value': 1e-3,
-      'warmup_steps': 1_000,
-      'transition_steps': config.training_steps,
-      'decay_rate': 0.25,
+      'peak_value': 3e-3,
+      'warmup_steps': 5_000,
+      'transition_steps': config.training_steps / 4,
+      'decay_rate': 0.5,
       'transition_begin': 0,
       'staircase': False,
       'end_value': None,
   }
 
   # How often to evaluate the model.
-  config.eval_steps = config.training_steps / 20
+  config.eval_steps = config.training_steps / 10
   config.num_samples_eval = 5_000
 
   # Initial seed for random numbers.
@@ -60,7 +60,7 @@ def get_config():
   # Number of posteriors samples used in the plots.
   config.num_samples_plot = 10_000
 
-  config.eta_plot = (0.001, 0.1, 1.0)
+  config.eta_plot = [[1., 0.001], [1., 0.1], [1., 1.]]
 
   # How often to save model checkpoints.
   config.checkpoint_steps = config.training_steps / 4
@@ -69,25 +69,16 @@ def get_config():
   config.checkpoints_keep = 1
 
   # Arguments for the Variational Meta-Posterior map
-  config.vmp_map_name = 'VmpGP'
+  config.vmp_map_name = 'VmpMap'
   config.vmp_map_kwargs = ml_collections.ConfigDict()
-  config.vmp_map_kwargs.num_knots = 5
-  config.vmp_map_kwargs.kernel_name = 'ExponentiatedQuadratic'
-  config.vmp_map_kwargs.kernel_kwargs = ml_collections.ConfigDict()
-  config.vmp_map_kwargs.kernel_kwargs.amplitude = 0.2
-  config.vmp_map_kwargs.kernel_kwargs.length_scale = 0.2
-  config.vmp_map_kwargs.y_sigma = 1e-2
+  config.vmp_map_kwargs.hidden_sizes = [10] * 5
 
   # Number of samples of eta for Meta-Posterior training
   config.num_samples_eta = 25
   config.eta_sampling_a = 0.2
-  config.eta_sampling_b = 0.2
+  config.eta_sampling_b = 1.0
 
   config.lambda_idx_plot = [50 * i for i in range(5)]
   config.constant_lambda_ignore_plot = True
-
-  config.state_flow_init_path = ''
-  config.eps_noise_pretrain = 1e-5
-  config.pretrain_error = 1.
 
   return config

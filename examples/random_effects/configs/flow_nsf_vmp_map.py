@@ -37,11 +37,6 @@ def get_config():
   # Number of training steps to run.
   config.training_steps = 50_000
 
-  # Optimizer for pretrain
-  config.optim_pretrain_kwargs = ml_collections.ConfigDict()
-  config.optim_pretrain_kwargs.grad_clip_value = 1.0
-  config.optim_pretrain_kwargs.learning_rate = 3e-4
-
   # Optimizer
   config.optim_kwargs = ml_collections.ConfigDict()
   config.optim_kwargs.grad_clip_value = 1.0
@@ -60,7 +55,7 @@ def get_config():
   }
 
   # How often to evaluate the model.
-  config.eval_steps = int(config.training_steps / 20)
+  config.eval_steps = int(config.training_steps / 10)
 
   # Initial seed for random numbers.
   config.seed = 123
@@ -85,13 +80,10 @@ def get_config():
   config.checkpoints_keep = 1
 
   # Arguments for the Variational Meta-Posterior map
-  config.vmp_map_name = 'VmpMLP'
+  config.vmp_map_name = 'VmpMap'
   config.vmp_map_kwargs = ml_collections.ConfigDict()
   eta_dim = config.num_groups
   config.vmp_map_kwargs.hidden_sizes = [eta_dim * 10] * 5 + [20]
-  # config.vmp_map_kwargs.hidden_sizes = [
-  #     eta_dim * 2**i for i in sorted(list(range(1, 5)) * 2)
-  # ] + [10]
 
   # Number of samples of eta for Meta-Posterior training
   config.num_samples_eta = 25
@@ -100,12 +92,5 @@ def get_config():
 
   config.lambda_idx_plot = [50 * i for i in range(5)]
   config.constant_lambda_ignore_plot = True
-
-  config.pretrain_vmp_map = False
-  config.state_sigma_init = ''
-  config.state_beta_tau_init = ''
-  config.state_beta_tau_aux_init = ''
-  config.eps_noise_pretrain = 1e-5
-  config.pretrain_error = 100.
 
   return config

@@ -122,7 +122,7 @@ def q_distr_beta_tau(
 
   q_distr_out = {}
 
-  num_samples_flow = sigma_base_sample.shape[0]
+  num_samples = sigma_base_sample.shape[0]
 
   # Define normalizing flows
   q_distr = getattr(flows, flow_name + '_beta_tau')(**flow_kwargs)
@@ -130,7 +130,7 @@ def q_distr_beta_tau(
   # Sample from flow
   (beta_tau_sample, beta_tau_log_prob_posterior) = q_distr.sample_and_log_prob(
       seed=hk.next_rng_key(),
-      sample_shape=(num_samples_flow,),
+      sample_shape=(num_samples,),
       context=sigma_base_sample,
   )
 
@@ -204,9 +204,9 @@ def elbo_estimate(
     params_tuple: Tuple[hk.Params],
     batch: Batch,
     prng_key: PRNGKey,
+    num_samples: int,
     flow_name: str,
     flow_kwargs: Dict[str, Any],
-    num_samples_flow: int,
     smi_eta: Optional[SmiEta],
 ) -> Dict[str, Array]:
   """Estimate ELBO
@@ -221,7 +221,7 @@ def elbo_estimate(
       prng_key=prng_key,
       flow_name=flow_name,
       flow_kwargs=flow_kwargs,
-      sample_shape=(num_samples_flow,),
+      sample_shape=(num_samples,),
   )
 
   is_smi = False if smi_eta is None else True
@@ -299,8 +299,7 @@ def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
 def log_images(
     state_list: List[TrainState],
     prng_key: PRNGKey,
-    flow_name: str,
-    flow_kwargs: Dict[str, Any],
+    config: ConfigDict,
     num_samples_plot: int,
     suffix: Optional[str] = None,
     summary_writer: Optional[SummaryWriter] = None,
@@ -310,10 +309,10 @@ def log_images(
 
   # Sample from posterior
   q_distr_out = sample_all_flows(
-      params_tuple=tuple(state.params for state in state_list),
+      params_tuple=[state.params for state in state_list],
       prng_key=prng_key,
-      flow_name=flow_name,
-      flow_kwargs=flow_kwargs,
+      flow_name=config.flow_name,
+      flow_kwargs=config.flow_kwargs,
       sample_shape=(num_samples_plot,),
   )
 
@@ -561,6 +560,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   for line in summary.split("\n"):
     logging.info(line)
 
+  # Jit function to update training states
   update_states_jit = lambda state_list, batch, prng_key, smi_eta: utils.update_states(
       state_list=state_list,
       batch=batch,
@@ -568,13 +568,24 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       optimizer=make_optimizer(**config.optim_kwargs),
       loss_fn=loss,
       loss_fn_kwargs={
+          'num_samples': config.num_samples_elbo,
           'flow_name': config.flow_name,
           'flow_kwargs': config.flow_kwargs,
-          'num_samples_flow': config.num_samples_elbo,
           'smi_eta': smi_eta,
       },
   )
   update_states_jit = jax.jit(update_states_jit)
+
+  elbo_validation_jit = lambda state_list, batch, prng_key, smi_eta: elbo_estimate(
+      params_tuple=[state.params for state in state_list],
+      batch=batch,
+      prng_key=prng_key,
+      num_samples=config.num_samples_eval,
+      flow_name=config.flow_name,
+      flow_kwargs=config.flow_kwargs,
+      smi_eta=smi_eta,
+  )
+  elbo_validation_jit = jax.jit(elbo_validation_jit)
 
   if state_list[0].step < config.training_steps:
     logging.info('Training variational posterior...')
@@ -583,32 +594,17 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
     # Plots to monitor during training
     if ((state_list[0].step == 0) or
-        ((state_list[0].step > config.random_eta_steps) and
-         (state_list[0].step % config.log_img_steps == 0))):
+        (state_list[0].step % config.log_img_steps == 0)):
       # print("Logging images...\n")
       log_images(
           state_list=state_list,
           prng_key=next(prng_seq),
-          flow_name=config.flow_name,
-          flow_kwargs=config.flow_kwargs,
+          config=config,
           num_samples_plot=int(config.num_samples_plot),
           suffix=config.plot_suffix,
           summary_writer=summary_writer,
           workdir_png=workdir,
       )
-
-    # Take randomn values of eta at the beginning of training
-    if (smi_eta
-        is not None) and (state_list[0].step < int(config.random_eta_steps)):
-      smi_eta_step = smi_eta.copy()
-      smi_eta_step['groups'] = jax.random.beta(
-          key=next(prng_seq),
-          a=0.25,
-          b=0.25,
-          shape=smi_eta['groups'].shape,
-      )
-    else:
-      smi_eta_step = smi_eta
 
     # Log learning rate
     summary_writer.scalar(
@@ -623,7 +619,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         state_list=state_list,
         batch=train_ds,
         prng_key=next(prng_seq),
-        smi_eta=smi_eta_step,
+        smi_eta=smi_eta,
     )
     # The computed training loss corresponds to the model before update
     summary_writer.scalar(
@@ -636,15 +632,12 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       logging.info("STEP: %5d; training loss: %.3f", state_list[0].step - 1,
                    metrics["train_loss"])
 
-    if (state_list[0].step > config.random_eta_steps) and (state_list[0].step %
-                                                           100 == 0):
-      elbo_dict = elbo_estimate(
-          params_tuple=tuple(state.params for state in state_list),
+    # Metrics for evaluation
+    if state_list[0].step % config.eval_steps == 0:
+      elbo_dict = elbo_validation_jit(
+          state_list=state_list,
           batch=train_ds,
           prng_key=next(prng_seq),
-          flow_name=config.flow_name,
-          flow_kwargs=config.flow_kwargs,
-          num_samples_flow=config.num_samples_eval,
           smi_eta=smi_eta,
       )
       for k, v in elbo_dict.items():
@@ -655,15 +648,14 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         )
 
     # Metrics for evaluation
-    if (state_list[0].step > config.random_eta_steps) and (
-        state_list[0].step % config.eval_steps == 0):
+    if state_list[0].step % config.eval_steps == 0:
 
       logging.info("STEP: %5d; training loss: %.3f", state_list[0].step - 1,
                    metrics["train_loss"])
 
       # Compute ELPD
       q_distr_out_eval = sample_all_flows(
-          params_tuple=tuple(state.params for state in state_list),
+          params_tuple=[state.params for state in state_list],
           prng_key=next(prng_seq),
           flow_name=config.flow_name,
           flow_kwargs=config.flow_kwargs,
@@ -690,10 +682,10 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         )
 
     if state_list[0].step % config.checkpoint_steps == 0:
-      for state, state_name in zip(state_list, state_name_list):
+      for state_i, state_name_i in zip(state_list, state_name_list):
         utils.save_checkpoint(
-            state=state,
-            checkpoint_dir=f'{checkpoint_dir}/{state_name}',
+            state=state_i,
+            checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
             keep=config.checkpoints_keep,
         )
 
@@ -704,10 +696,10 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   # Saving checkpoint at the end of the training process
   # (in case training_steps is not multiple of checkpoint_steps)
-  for state, state_name in zip(state_list, state_name_list):
+  for state_i, state_name_i in zip(state_list, state_name_list):
     utils.save_checkpoint(
-        state=state,
-        checkpoint_dir=f'{checkpoint_dir}/{state_name}',
+        state=state_i,
+        checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
         keep=config.checkpoints_keep,
     )
 
@@ -715,22 +707,11 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   log_images(
       state_list=state_list,
       prng_key=next(prng_seq),
-      flow_name=config.flow_name,
-      flow_kwargs=config.flow_kwargs,
+      config=config,
       num_samples_plot=int(config.num_samples_plot),
       suffix=config.plot_suffix,
       summary_writer=summary_writer,
       workdir_png=workdir,
   )
 
-  return state
-
-
-# # For debugging
-# config = get_config()
-# config.flow_kwargs.smi_eta = {
-#     'groups': [1.0 for _ in range(config.num_groups)]
-# }
-# # workdir = pathlib.Path.home() / 'smi/output/debug'
-# workdir = pathlib.Path.home() / 'smi/output/random_effects/spline/full'
-# train_and_evaluate(config, workdir)
+  return state_list

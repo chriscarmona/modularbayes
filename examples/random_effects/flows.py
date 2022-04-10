@@ -197,7 +197,8 @@ def nsf_sigma(
             hidden_sizes=hidden_sizes,
             num_bijector_params=num_bijector_params,
             name='conditioner_sigma',
-        ))
+        ),
+    )
     flow_layers.append(layer)
     # Flip the mask after each layer.
     mask = jnp.logical_not(mask)
@@ -268,7 +269,8 @@ def nsf_beta_tau(
             hidden_sizes=hidden_sizes,
             num_bijector_params=num_bijector_params,
             name='conditioner_beta_tau',
-        ))
+        ),
+    )
     flow_layers.append(layer)
     # Flip the mask after each layer.
     mask = jnp.logical_not(mask)
@@ -304,7 +306,7 @@ def meta_nsf_sigma(
     range_min: float = 0.,
     range_max: float = 1.,
     **_,
-) -> distributions.Transformed:
+) -> distributions.ConditionalTransformed:
   """Creates the Rational Quadratic Flow model.
 
   Args:

@@ -17,13 +17,15 @@ import optax
 import flows
 import log_prob_fun
 import plot
-import data
 
+from train_flow import load_dataset, make_optimizer
+
+import modularbayes
 from modularbayes import utils
 from modularbayes.utils.training import TrainState
-from modularbayes.typing import (Any, Array, Batch, ConfigDict, Dict, IntLike,
-                                 List, Optional, PRNGKey, Sequence, SmiEta,
-                                 SummaryWriter, Tuple, Union)
+from modularbayes.typing import (Any, Array, Batch, ConfigDict, Dict, List,
+                                 Optional, PRNGKey, SmiEta, SummaryWriter,
+                                 Tuple)
 
 # Set high precision for matrix multiplication in jax
 jax.config.update('jax_default_matmul_precision', 'float32')
@@ -31,36 +33,10 @@ jax.config.update('jax_default_matmul_precision', 'float32')
 np.set_printoptions(suppress=True, precision=4)
 
 
-def load_dataset() -> Dict[str, Array]:
-  """Load Epidemiology data from Plummer."""
-  dataset_dict = dict(
-      zip(['Z', 'N', 'Y', 'T'],
-          np.split(data.epidemiology.to_numpy(), 4, axis=-1)))
-  dataset_dict = {
-      key: jnp.array(value.squeeze()) for key, value in dataset_dict.items()
-  }
-  return dataset_dict
-
-
-def make_optimizer(
-    lr_schedule_name,
-    lr_schedule_kwargs,
-    grad_clip_value,
-) -> optax.GradientTransformation:
-  """Define optimizer to train the Flow."""
-  schedule = getattr(optax, lr_schedule_name)(**lr_schedule_kwargs)
-
-  optimizer = optax.chain(*[
-      optax.clip_by_global_norm(max_norm=grad_clip_value),
-      optax.adabelief(learning_rate=schedule),
-  ])
-  return optimizer
-
-
 def q_distr_phi(
     flow_name: str,
     flow_kwargs: Dict[str, Any],
-    sample_shape: Union[IntLike, Sequence[IntLike]],
+    eta: Array,
 ) -> Dict[str, Any]:
   """Sample from model posterior"""
 
@@ -69,10 +45,13 @@ def q_distr_phi(
   # Define normalizing flows
   q_distr = getattr(flows, flow_name + '_phi')(**flow_kwargs)
 
+  sample_shape = (eta.shape[0],)
+
   # Sample from flows
   (phi_sample, phi_log_prob_posterior,
    phi_base_sample) = q_distr.sample_and_log_prob_with_base(
        seed=hk.next_rng_key(),
+       context=[eta, None],
        sample_shape=sample_shape,
    )
 
@@ -97,6 +76,7 @@ def q_distr_theta(
     flow_name: str,
     flow_kwargs: Dict[str, Any],
     phi_base_sample: Array,
+    eta: Array,
     is_aux: bool,
 ) -> Dict[str, Any]:
   """Sample from model posterior"""
@@ -108,11 +88,11 @@ def q_distr_theta(
   # Define normalizing flows
   q_distr = getattr(flows, flow_name + '_theta')(**flow_kwargs)
 
-  # Sample from flows
+  # Sample from flow
   (theta_sample, theta_log_prob_posterior) = q_distr.sample_and_log_prob(
       seed=hk.next_rng_key(),
       sample_shape=(num_samples_flow,),
-      context=phi_base_sample,
+      context=[eta, phi_base_sample],
   )
 
   # Split flow into model parameters
@@ -136,7 +116,7 @@ def sample_all_flows(
     prng_key: PRNGKey,
     flow_name: str,
     flow_kwargs: Dict[str, Any],
-    sample_shape: Union[IntLike, Sequence[IntLike]],
+    smi_eta: SmiEta,
 ) -> Dict[str, Any]:
   """Sample from model posterior"""
 
@@ -148,7 +128,7 @@ def sample_all_flows(
       next(prng_seq),
       flow_name=flow_name,
       flow_kwargs=flow_kwargs,
-      sample_shape=sample_shape,
+      eta=smi_eta['modules'],
   )
 
   # theta
@@ -158,36 +138,38 @@ def sample_all_flows(
       flow_name=flow_name,
       flow_kwargs=flow_kwargs,
       phi_base_sample=q_distr_out['phi_base_sample'],
+      eta=smi_eta['modules'],
       is_aux=False,
   )
   q_distr_out['posterior_sample'].update(q_distr_out_theta['posterior_sample'])
   q_distr_out['theta_log_prob'] = q_distr_out_theta['theta_log_prob']
 
-  if flow_kwargs.is_smi:
-    q_distr_out_theta_aux = hk.transform(q_distr_theta).apply(
-        params_tuple[2],
-        next(prng_seq),
-        flow_name=flow_name,
-        flow_kwargs=flow_kwargs,
-        phi_base_sample=q_distr_out['phi_base_sample'],
-        is_aux=True,
-    )
-    q_distr_out['posterior_sample'].update(
-        q_distr_out_theta_aux['posterior_sample'])
-    q_distr_out['theta_aux_log_prob'] = q_distr_out_theta_aux[
-        'theta_aux_log_prob']
+  q_distr_out_theta_aux = hk.transform(q_distr_theta).apply(
+      params_tuple[2],
+      next(prng_seq),
+      flow_name=flow_name,
+      flow_kwargs=flow_kwargs,
+      phi_base_sample=q_distr_out['phi_base_sample'],
+      eta=smi_eta['modules'],
+      is_aux=True,
+  )
+  q_distr_out['posterior_sample'].update(
+      q_distr_out_theta_aux['posterior_sample'])
+  q_distr_out['theta_aux_log_prob'] = q_distr_out_theta_aux[
+      'theta_aux_log_prob']
 
   return q_distr_out
 
 
-def elbo_estimate(
+def elbo_estimate_along_eta(
     params_tuple: Tuple[hk.Params],
     batch: Batch,
     prng_key: PRNGKey,
     num_samples: int,
     flow_name: str,
     flow_kwargs: Dict[str, Any],
-    smi_eta: Optional[SmiEta],
+    eta_sampling_a: float,
+    eta_sampling_b: float,
 ) -> Dict[str, Array]:
   """Estimate ELBO
 
@@ -195,16 +177,27 @@ def elbo_estimate(
   Incorporates the stop_gradient operator for the secong stage.
   """
 
+  prng_seq = hk.PRNGSequence(prng_key)
+
+  # Sample eta values (only for Y module)
+  etas_elbo = jax.random.beta(
+      key=next(prng_seq),
+      a=eta_sampling_a,
+      b=eta_sampling_b,
+      shape=(num_samples, 1),
+  )
+  # Set eta_z=1
+  etas_elbo = jnp.concatenate([jnp.ones_like(etas_elbo), etas_elbo], axis=-1)
+  smi_eta_elbo = {'modules': etas_elbo}
+
   # Sample from flow
   q_distr_out = sample_all_flows(
       params_tuple=params_tuple,
       prng_key=prng_key,
       flow_name=flow_name,
       flow_kwargs=flow_kwargs,
-      sample_shape=(num_samples,),
+      smi_eta=smi_eta_elbo,
   )
-
-  is_smi = False if smi_eta is None else True
 
   shared_params_names = [
       'phi',
@@ -214,48 +207,52 @@ def elbo_estimate(
   ]
 
   # ELBO stage 1: Power posterior
-  if is_smi:
-    posterior_sample_dict_stg1 = {}
-    for key in shared_params_names:
-      posterior_sample_dict_stg1[key] = q_distr_out['posterior_sample'][key]
-    for key in refit_params_names:
-      posterior_sample_dict_stg1[key] = q_distr_out['posterior_sample'][key +
-                                                                        '_aux']
-    log_prob_joint_stg1 = log_prob_fun.log_prob_joint(
-        batch=batch,
-        posterior_sample_dict=posterior_sample_dict_stg1,
-        smi_eta=smi_eta,
-    )
-    log_q_stg1 = (
-        q_distr_out['phi_log_prob'] + q_distr_out['theta_aux_log_prob'])
+  posterior_sample_dict_stg1 = {}
+  for key in shared_params_names:
+    posterior_sample_dict_stg1[key] = q_distr_out['posterior_sample'][key]
+  for key in refit_params_names:
+    posterior_sample_dict_stg1[key] = q_distr_out['posterior_sample'][key +
+                                                                      '_aux']
 
-    elbo_stg1 = log_prob_joint_stg1 - log_q_stg1
-  else:
-    elbo_stg1 = 0.
+  log_prob_joint_stg1 = jax.vmap(
+      lambda posterior_sample_i, smi_eta_i: log_prob_fun.log_prob_joint(
+          batch=batch,
+          posterior_sample_dict=posterior_sample_i,
+          smi_eta=smi_eta_i,
+      ))(
+          jax.tree_map(lambda x: jnp.expand_dims(x, 1),
+                       posterior_sample_dict_stg1),
+          smi_eta_elbo,
+      )
+
+  log_q_stg1 = q_distr_out['phi_log_prob'] + q_distr_out['theta_aux_log_prob']
+
+  #TODO: check reshape
+  elbo_stg1 = log_prob_joint_stg1.reshape(-1) - log_q_stg1
 
   # ELBO stage 2: Refit theta
   posterior_sample_dict_stg2 = {}
   for key in shared_params_names:
-    if is_smi:
-      posterior_sample_dict_stg2[key] = jax.lax.stop_gradient(
-          q_distr_out['posterior_sample'][key])
-    else:
-      posterior_sample_dict_stg2[key] = q_distr_out['posterior_sample'][key]
+    posterior_sample_dict_stg2[key] = jax.lax.stop_gradient(
+        q_distr_out['posterior_sample'][key])
   for key in refit_params_names:
     posterior_sample_dict_stg2[key] = q_distr_out['posterior_sample'][key]
-  log_prob_joint_stg2 = log_prob_fun.log_prob_joint(
-      batch=batch,
-      posterior_sample_dict=posterior_sample_dict_stg2,
-      smi_eta=None,
-  )
-  if is_smi:
-    log_q_stg2 = (
-        jax.lax.stop_gradient(q_distr_out['phi_log_prob']) +
-        q_distr_out['theta_log_prob'])
-  else:
-    log_q_stg2 = (q_distr_out['phi_log_prob'] + q_distr_out['theta_log_prob'])
 
-  elbo_stg2 = log_prob_joint_stg2 - log_q_stg2
+  log_prob_joint_stg2 = jax.vmap(
+      lambda posterior_sample_i: log_prob_fun.log_prob_joint(
+          batch=batch,
+          posterior_sample_dict=posterior_sample_i,
+          smi_eta=None,
+      ))(
+          jax.tree_map(lambda x: jnp.expand_dims(x, 1),
+                       posterior_sample_dict_stg2))
+
+  log_q_stg2 = (
+      jax.lax.stop_gradient(q_distr_out['phi_log_prob']) +
+      q_distr_out['theta_log_prob'])
+
+  # TODO: check reshape
+  elbo_stg2 = log_prob_joint_stg2.reshape(-1) - log_q_stg2
 
   elbo_dict = {'stage_1': elbo_stg1, 'stage_2': elbo_stg2}
 
@@ -266,7 +263,8 @@ def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
   """Define training loss function."""
 
   ### Compute ELBO ###
-  elbo_dict = elbo_estimate(params_tuple=params_tuple, *args, **kwargs)
+  elbo_dict = elbo_estimate_along_eta(
+      params_tuple=params_tuple, *args, **kwargs)
 
   # Our loss is the Negative ELBO
   loss_avg = -(jnp.nanmean(elbo_dict['stage_1'] + elbo_dict['stage_2']))
@@ -277,78 +275,42 @@ def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
 def log_images(
     state_list: List[TrainState],
     prng_key: PRNGKey,
-    flow_name: str,
-    flow_kwargs: Dict[str, Any],
+    config: ConfigDict,
     num_samples_plot: int,
-    smi_eta: Optional[SmiEta] = None,
     summary_writer: Optional[SummaryWriter] = None,
     workdir_png: Optional[str] = None,
 ) -> None:
   """Plots to monitor during training."""
 
-  # Sample from flow
-  q_distr_out = sample_all_flows(
-      params_tuple=[state.params for state in state_list],
-      prng_key=prng_key,
-      flow_name=flow_name,
-      flow_kwargs=flow_kwargs,
-      sample_shape=(num_samples_plot,),
-  )
+  prng_seq = hk.PRNGSequence(prng_key)
 
-  plot.posterior_samples(
-      posterior_sample_dict=q_distr_out['posterior_sample'],
-      summary_writer=summary_writer,
-      step=state_list[0].step,
-      eta=smi_eta['modules'][0][1],
-      workdir_png=workdir_png,
-  )
+  eta_plot = jnp.array(config.eta_plot)
 
+  assert eta_plot.ndim == 2
 
-def compute_elpd(
-    state_list: List[TrainState],
-    batch: Batch,
-    prng_key: PRNGKey,
-    flow_name: str,
-    flow_kwargs: Dict[str, Any],
-    num_samples: int,
-):
-  """Compute ELPD via WAIC"""
+  # Plot posterior samples
+  key_flow = next(prng_seq)
+  for i in range(eta_plot.shape[0]):
+    # Sample from flow
+    q_distr_out = sample_all_flows(
+        params_tuple=[state.params for state in state_list],
+        prng_key=key_flow,
+        flow_name=config.flow_name,
+        flow_kwargs=config.flow_kwargs,
+        smi_eta={
+            'modules':
+                jnp.broadcast_to(eta_plot[[i], :], (config.num_samples_plot,) +
+                                 eta_plot.shape[1:])
+        },
+    )
 
-  # Sample from flow
-  q_distr_out = sample_all_flows(
-      params_tuple=[state.params for state in state_list],
-      prng_key=prng_key,
-      flow_name=flow_name,
-      flow_kwargs=flow_kwargs,
-      sample_shape=(num_samples,),
-  )
-
-  loglik_pointwise = log_prob_fun.log_lik_vectorised(
-      batch['Z'],
-      batch['Y'],
-      batch['N'],
-      batch['T'],
-      q_distr_out['posterior_sample']['phi'],
-      q_distr_out['posterior_sample']['theta'],
-  )
-
-  lpd = jax.scipy.special.logsumexp(
-      loglik_pointwise, axis=0) - jnp.log(num_samples)  # colLogMeanExps
-  p_waic = jnp.var(loglik_pointwise, axis=0)
-  elpd_waic = lpd - p_waic
-
-  # posterior_az = az.InferenceData(
-  #     posterior=az.dict_to_dataset({
-  #         k: np.expand_dims(v, axis=0)
-  #         for k, v in posterior_sample_dict.items()
-  #     }),
-  #     log_likelihood=az.dict_to_dataset(
-  #         {'x': np.expand_dims(loglik_pointwise[:, :, 1], axis=0)}),
-  # )
-  # posterior_az.log_likelihood.stack(__sample__=("chain", "draw")).shape
-  # elpd_data = az.loo(data=posterior_az, pointwise=True)
-
-  return elpd_waic
+    plot.posterior_samples(
+        posterior_sample_dict=q_distr_out['posterior_sample'],
+        summary_writer=summary_writer,
+        step=state_list[0].step,
+        eta=eta_plot[i][1],
+        workdir_png=workdir_png,
+    )
 
 
 def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
@@ -369,8 +331,6 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   # Small data, no need to batch
   train_ds = load_dataset()
 
-  smi_eta = config.flow_kwargs.smi_eta
-
   phi_dim = train_ds['Z'].shape[0]
   theta_dim = 2
 
@@ -379,7 +339,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   config.flow_kwargs.phi_dim = phi_dim
   config.flow_kwargs.theta_dim = theta_dim
   # Also is_smi modifies the dimension of the flow, due to the duplicated params
-  config.flow_kwargs.is_smi = (smi_eta is not None)
+  config.flow_kwargs.is_smi = True
 
   # writer = metric_writers.create_default_writer(
   #     logdir=workdir, just_logging=jax.host_id() != 0)
@@ -388,9 +348,6 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     summary_writer.hparams(utils.flatten_dict(config))
   else:
     summary_writer = None
-
-  if smi_eta is not None:
-    smi_eta = {k: jnp.array(v) for k, v in smi_eta.items()}
 
   checkpoint_dir = str(pathlib.Path(workdir) / 'checkpoints')
   state_list = []
@@ -404,7 +361,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           forward_fn_kwargs={
               'flow_name': config.flow_name,
               'flow_kwargs': config.flow_kwargs,
-              'sample_shape': (config.num_samples_elbo,)
+              'eta': jnp.ones((config.num_samples_elbo, 2)),
           },
           prng_key=next(prng_seq),
           optimizer=make_optimizer(**config.optim_kwargs),
@@ -417,7 +374,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       next(prng_seq),
       flow_name=config.flow_name,
       flow_kwargs=config.flow_kwargs,
-      sample_shape=(config.num_samples_elbo,),
+      eta=jnp.ones((config.num_samples_elbo, 2)),
   )['phi_base_sample']
 
   state_name_list.append('theta')
@@ -429,6 +386,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
               'flow_name': config.flow_name,
               'flow_kwargs': config.flow_kwargs,
               'phi_base_sample': phi_base_sample_init,
+              'eta': jnp.ones((config.num_samples_elbo, 2)),
               'is_aux': False,
           },
           prng_key=next(prng_seq),
@@ -444,6 +402,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
                 'flow_name': config.flow_name,
                 'flow_kwargs': config.flow_kwargs,
                 'phi_base_sample': phi_base_sample_init,
+                'eta': jnp.ones((config.num_samples_elbo, 2)),
                 'is_aux': True,
             },
             prng_key=next(prng_seq),
@@ -458,7 +417,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           prng_key,
           flow_name=config.flow_name,
           flow_kwargs=config.flow_kwargs,
-          sample_shape=(config.num_samples_elbo,),
+          eta=jnp.ones((config.num_samples_elbo, 2)),
       ),
       columns=(
           "module",
@@ -480,6 +439,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           flow_name=config.flow_name,
           flow_kwargs=config.flow_kwargs,
           phi_base_sample=phi_base_sample_init,
+          eta=jnp.ones((config.num_samples_elbo, 2)),
           is_aux=False,
       ),
       columns=(
@@ -495,7 +455,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     logging.info(line)
 
   # Jit function to update training states
-  update_states_jit = lambda state_list, batch, prng_key, smi_eta: utils.update_states(
+  update_states_jit = lambda state_list, batch, prng_key: utils.update_states(
       state_list=state_list,
       batch=batch,
       prng_key=prng_key,
@@ -505,24 +465,26 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           'num_samples': config.num_samples_elbo,
           'flow_name': config.flow_name,
           'flow_kwargs': config.flow_kwargs,
-          'smi_eta': smi_eta,
+          'eta_sampling_a': config.eta_sampling_a,
+          'eta_sampling_b': config.eta_sampling_b,
       },
   )
   update_states_jit = jax.jit(update_states_jit)
 
-  elbo_validation_jit = lambda state_list, batch, prng_key, smi_eta: elbo_estimate(
-      params_tuple=[state.params for state in state_list],
+  elbo_validation_jit = lambda state_list, batch, prng_key: elbo_estimate_along_eta(
+      params_tuple=tuple(state.params for state in state_list),
       batch=batch,
       prng_key=prng_key,
       num_samples=config.num_samples_eval,
       flow_name=config.flow_name,
       flow_kwargs=config.flow_kwargs,
-      smi_eta=smi_eta,
+      eta_sampling_a=1.,
+      eta_sampling_b=1.,
   )
   elbo_validation_jit = jax.jit(elbo_validation_jit)
 
   if state_list[0].step < config.training_steps:
-    logging.info('Training variational posterior...')
+    logging.info('Training Variational Meta-Posterior (VMP-flow)...')
 
   # Reset random key sequence
   prng_seq = hk.PRNGSequence(config.seed)
@@ -536,10 +498,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       log_images(
           state_list=state_list,
           prng_key=next(prng_seq),
-          flow_name=config.flow_name,
-          flow_kwargs=config.flow_kwargs,
+          config=config,
           num_samples_plot=config.num_samples_plot,
-          smi_eta=smi_eta,
           summary_writer=summary_writer,
           workdir_png=workdir,
       )
@@ -557,7 +517,6 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         state_list=state_list,
         batch=train_ds,
         prng_key=next(prng_seq),
-        smi_eta=smi_eta,
     )
     # The computed training loss corresponds to the model before update
     summary_writer.scalar(
@@ -572,16 +531,16 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
     # Metrics for evaluation
     if state_list[0].step % config.eval_steps == 0:
+
       logging.info("STEP: %5d; training loss: %.3f", state_list[0].step - 1,
                    metrics["train_loss"])
 
-      elbo_dict = elbo_validation_jit(
+      elbo_validation_dict = elbo_validation_jit(
           state_list=state_list,
           batch=train_ds,
           prng_key=next(prng_seq),
-          smi_eta=smi_eta,
       )
-      for k, v in elbo_dict.items():
+      for k, v in elbo_validation_dict.items():
         summary_writer.scalar(
             tag=f'elbo_{k}',
             value=v.mean(),
@@ -614,10 +573,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   log_images(
       state_list=state_list,
       prng_key=next(prng_seq),
-      flow_name=config.flow_name,
-      flow_kwargs=config.flow_kwargs,
+      config=config,
       num_samples_plot=config.num_samples_plot,
-      smi_eta=smi_eta,
       summary_writer=summary_writer,
       workdir_png=workdir,
   )

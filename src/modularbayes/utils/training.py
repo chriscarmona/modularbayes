@@ -154,9 +154,8 @@ def update_state(
 
   # If the gradients are not finite, keep previous params and opt_state
   new_state = TrainState(
-      jax.tree_multimap(
-          functools.partial(jnp.where, finite), new_params, params),
-      jax.tree_multimap(
+      jax.tree_map(functools.partial(jnp.where, finite), new_params, params),
+      jax.tree_map(
           functools.partial(jnp.where, finite), new_opt_state, opt_state),
       step + 1,
   )
@@ -194,12 +193,12 @@ def update_states(
     # If the gradients are not finite, keep previous params and opt_state
     new_state_list.append(
         TrainState(
-            params=jax.tree_multimap(
+            params=jax.tree_map(
                 functools.partial(jnp.where, finite),
                 new_params,
                 params_tuple[i],
             ),
-            opt_state=jax.tree_multimap(
+            opt_state=jax.tree_map(
                 functools.partial(jnp.where, finite),
                 new_opt_state,
                 opt_state_tuple[i],

@@ -54,19 +54,6 @@ def make_optimizer(
   return optimizer
 
 
-def make_optimizer_pretrain(
-    learning_rate,
-    grad_clip_value,
-) -> optax.GradientTransformation:
-  """Define optimizer to pre-train the VHP map to a constant function of eta."""
-
-  optimizer = optax.chain(*[
-      optax.clip_by_global_norm(max_norm=grad_clip_value),
-      optax.adabelief(learning_rate=learning_rate),
-  ])
-  return optimizer
-
-
 # Define Meta-Posterior map
 # Produce flow parameters as a function of eta
 @hk.without_apply_rng
@@ -77,84 +64,19 @@ def vmp_map(eta, vmp_map_name, vmp_map_kwargs, params_flow_init):
           eta)
 
 
-def loss_pretrain(
-    params_tuple: Tuple[hk.Params],
-    batch: Batch,  # pylint: disable=unused-argument
-    prng_key: PRNGKey,
-    num_samples_eta: int,
-    vmp_map_name: str,
-    vmp_map_kwargs: Dict[str, Any],
-    params_flow_init_list: List[hk.Params],
-    eta_sampling_a: float,
-    eta_sampling_b: float,
-    num_groups: int,
-    eps: float,
-):
-  """Loss to pretrain VMP map.
-
-  Produce constant variational parameters equal to params_flow_init.
-  """
-
-  prng_seq = hk.PRNGSequence(prng_key)
-
-  # Sample eta values
-  # eta = jax.random.uniform(key=next(prng_seq), shape=(num_samples_eta, 1))
-  etas = jax.random.beta(
-      key=next(prng_seq),
-      a=eta_sampling_a,
-      b=eta_sampling_b,
-      shape=(num_samples_eta, num_groups),
-  )
-
-  params_flow_tuple = [
-      vmp_map.apply(
-          params,
-          eta=etas,
-          vmp_map_name=vmp_map_name,
-          vmp_map_kwargs=vmp_map_kwargs,
-          params_flow_init=params_flow_init,
-      ) for params, params_flow_init in zip(params_tuple, params_flow_init_list)
-  ]
-
-  # Square difference of params_flow_tuple and the target params_flow_init
-
-  # Add noise to the target to break simetries
-  noise_tree_list = [
-      jax.tree_map(
-          lambda y: eps * jax.random.normal(next(prng_seq), y.shape),
-          tree=params_flow,
-      ) for params_flow in params_flow_tuple
-  ]
-  target_loc_tree_list = [
-      jax.tree_map(
-          lambda y: jnp.expand_dims(y, 0),
-          params_flow_init,
-      ) for params_flow_init in params_flow_init_list
-  ]
-
-  diff_tree = jax.tree_multimap(
-      lambda x, target_loc, noise: jnp.square(x - (target_loc + noise)).sum(),
-      params_flow_tuple,
-      target_loc_tree_list,
-      noise_tree_list,
-  )
-
-  diff_total = jnp.stack(jax.tree_util.tree_leaves(diff_tree)).sum()
-
-  return diff_total
-
-
 def elbo_estimate_vmap(
     params_vmap_tuple: Tuple[hk.Params],
     batch: Batch,
     prng_key: PRNGKey,
     num_samples_eta: int,
+    num_samples_flow: int,
     flow_name: str,
     flow_kwargs: Dict[str, Any],
-    num_samples_flow: int,
     vmp_map_name: str,
     vmp_map_kwargs: Dict[str, Any],
     params_flow_init_list: List[hk.Params],
+    eta_name: str,
+    eta_dim: int,
     eta_sampling_a: float,
     eta_sampling_b: float,
 ) -> Dict[str, Array]:
@@ -170,12 +92,12 @@ def elbo_estimate_vmap(
       key=key_eta,
       a=eta_sampling_a,
       b=eta_sampling_b,
-      shape=(num_samples_eta, flow_kwargs.num_groups),
+      shape=(num_samples_eta, eta_dim),
   )
   # # Clip eta so that the variance of the prior p(beta|tau is not too large)
   # etas = jnp.clip(etas, 1e-4)
 
-  smi_eta_vmap = {'groups': etas}
+  smi_eta_vmap = {eta_name: etas}
 
   params_flow_tuple = [
       vmp_map.apply(
@@ -198,9 +120,9 @@ def elbo_estimate_vmap(
       params_tuple=params_flow_tuple_i,
       batch=batch,
       prng_key=key_elbo,
+      num_samples=num_samples_flow,
       flow_name=flow_name,
       flow_kwargs=flow_kwargs,
-      num_samples_flow=num_samples_flow,
       smi_eta=smi_eta_i,
   ))(params_flow_tuple, smi_eta_vmap)
 
@@ -439,7 +361,7 @@ def log_images(
   # (same key implies same samples from the base distribution)
   key_flow = next(prng_seq)
 
-  # Sample from posterior
+  # Sample from flow
   q_distr_out = jax.vmap(lambda params_flow_tuple: sample_all_flows(
       params_tuple=params_flow_tuple,
       prng_key=key_flow,
@@ -478,20 +400,20 @@ def log_images(
     ### VMP-map ###
     images = []
 
-    for state, state_name, params_flow_init in zip(state_list, state_name_list,
-                                                   params_flow_init_list):
+    for state_i, state_name_i, params_flow_init_i in zip(
+        state_list, state_name_list, params_flow_init_list):
       # Vary eta_0 and eta_1
-      plot_name = 'rnd_eff_vmp_map_eta_0_1_' + state_name
+      plot_name = 'rnd_eff_vmp_map_eta_0_1_' + state_name_i
 
       eta_grid = eta_grid_base.copy()
       eta_grid_x_y_idx = [0, 1]
       eta_grid[eta_grid_x_y_idx, :, :] = eta_grid_mini
 
       fig, _ = plot_vmp_map(
-          state=state,
+          state=state_i,
           vmp_map_name=config.vmp_map_name,
           vmp_map_kwargs=config.vmp_map_kwargs,
-          params_flow_init=params_flow_init,
+          params_flow_init=params_flow_init_i,
           lambda_idx=np.array(config.lambda_idx_plot),
           eta_grid=eta_grid,
           eta_grid_x_y_idx=eta_grid_x_y_idx,
@@ -503,17 +425,17 @@ def log_images(
         images.append(utils.plot_to_image(fig))
 
       # Vary eta_0 and eta_2
-      plot_name = 'rnd_eff_vmp_map_eta_0_2_' + state_name
+      plot_name = 'rnd_eff_vmp_map_eta_0_2_' + state_name_i
 
       eta_grid = eta_grid_base.copy()
       eta_grid_x_y_idx = [0, 2]
       eta_grid[eta_grid_x_y_idx, :, :] = eta_grid_mini
 
       fig, _ = plot_vmp_map(
-          state=state,
+          state=state_i,
           vmp_map_name=config.vmp_map_name,
           vmp_map_kwargs=config.vmp_map_kwargs,
-          params_flow_init=params_flow_init,
+          params_flow_init=params_flow_init_i,
           lambda_idx=np.array(config.lambda_idx_plot),
           eta_grid=eta_grid,
           eta_grid_x_y_idx=eta_grid_x_y_idx,
@@ -672,17 +594,14 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   # Get examples of the output tree to be produced by the meta functions
   params_flow_init_list = []
-  if config.state_sigma_init == '':
-    params_flow_init_list.append(
-        hk.transform(q_distr_sigma).init(
-            next(prng_seq),
-            flow_name=config.flow_name,
-            flow_kwargs=config.flow_kwargs,
-            sample_shape=(config.num_samples_elbo,),
-        ))
-  else:
-    state_flow_init = utils.load_ckpt(path=config.state_sigma_init)
-    params_flow_init_list.append(state_flow_init.params)
+
+  params_flow_init_list.append(
+      hk.transform(q_distr_sigma).init(
+          next(prng_seq),
+          flow_name=config.flow_name,
+          flow_kwargs=config.flow_kwargs,
+          sample_shape=(config.num_samples_elbo,),
+      ))
 
   # Get an initial sample of sigma
   # (used below to initialize beta and tau)
@@ -694,31 +613,23 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       sample_shape=(config.num_samples_elbo,),
   )['sigma_base_sample']
 
-  if config.state_beta_tau_init == '':
-    params_flow_init_list.append(
-        hk.transform(q_distr_beta_tau).init(
-            next(prng_seq),
-            flow_name=config.flow_name,
-            flow_kwargs=config.flow_kwargs,
-            sigma_base_sample=sigma_base_sample_init,
-            is_aux=False,
-        ))
-  else:
-    state_flow_init = utils.load_ckpt(path=config.state_beta_tau_init)
-    params_flow_init_list.append(state_flow_init.params)
+  params_flow_init_list.append(
+      hk.transform(q_distr_beta_tau).init(
+          next(prng_seq),
+          flow_name=config.flow_name,
+          flow_kwargs=config.flow_kwargs,
+          sigma_base_sample=sigma_base_sample_init,
+          is_aux=False,
+      ))
 
-  if config.state_beta_tau_aux_init == '':
-    params_flow_init_list.append(
-        hk.transform(q_distr_beta_tau).init(
-            next(prng_seq),
-            flow_name=config.flow_name,
-            flow_kwargs=config.flow_kwargs,
-            sigma_base_sample=sigma_base_sample_init,
-            is_aux=True,
-        ))
-  else:
-    state_flow_init = utils.load_ckpt(path=config.state_beta_tau_aux_init)
-    params_flow_init_list.append(state_flow_init.params)
+  params_flow_init_list.append(
+      hk.transform(q_distr_beta_tau).init(
+          next(prng_seq),
+          flow_name=config.flow_name,
+          flow_kwargs=config.flow_kwargs,
+          sigma_base_sample=sigma_base_sample_init,
+          is_aux=True,
+      ))
 
   ### Set Variational Meta-Posterior Map ###
 
@@ -771,7 +682,6 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       ),
       filters=("has_params",),
   )
-
   summary = tabulate_fn_(state_list[0], params_flow_init_list[0])
   logging.info('VMP-MAP SIGMA:')
   for line in summary.split("\n"):
@@ -781,72 +691,6 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   logging.info('VMP-MAP BETA TAU:')
   for line in summary.split("\n"):
     logging.info(line)
-
-  ### Pretraining VMP map ###
-  if config.pretrain_vmp_map:
-    if state_list[0].step == 0:
-      logging.info('Pre-training VMP-map...')
-      update_states_jit = lambda state_list, prng_key: utils.update_states(
-          state_list=state_list,
-          batch=None,
-          prng_key=prng_key,
-          optimizer=make_optimizer_pretrain(**config.optim_pretrain_kwargs),
-          # optimizer=make_optimizer(**config.optim_kwargs),
-          loss_fn=loss_pretrain,
-          loss_fn_kwargs={
-              'num_samples_eta': config.num_samples_eta,
-              'vmp_map_name': config.vmp_map_name,
-              'vmp_map_kwargs': config.vmp_map_kwargs,
-              'params_flow_init_list': params_flow_init_list,
-              'eta_sampling_a': config.eta_sampling_a,
-              'eta_sampling_b': config.eta_sampling_b,
-              'num_groups': config.num_groups,
-              'eps': config.eps_noise_pretrain,
-          },
-      )
-      # globals().update(loss_fn_kwargs)
-      update_states_jit = jax.jit(update_states_jit)
-
-      # Reset random key sequence
-      prng_seq = hk.PRNGSequence(config.seed)
-
-      metrics = {'pretrain_loss': jnp.inf}
-      while metrics['pretrain_loss'] > config.pretrain_error:
-        state_list, metrics = update_states_jit(
-            state_list=state_list,
-            prng_key=next(prng_seq),
-        )
-        metrics['pretrain_loss'] = metrics['train_loss']
-        del metrics['train_loss']
-
-        summary_writer.scalar(
-            tag='pretrain_loss',
-            value=metrics['pretrain_loss'],
-            step=state_list[0].step - 1,
-        )
-
-        if ((state_list[0].step - 1) % config.eval_steps
-            == 0) or (metrics['pretrain_loss'] <= config.pretrain_error):
-          logging.info("STEP: %5d; pretraining loss: %.3f",
-                       state_list[0].step - 1, metrics["pretrain_loss"])
-
-      # Reset some state attributes
-      state_list = [
-          TrainState(
-              params=state.params,
-              opt_state=make_optimizer(**config.optim_kwargs).init(
-                  state.params),
-              step=1,
-          ) for state in state_list
-      ]
-      # Save pretrained model
-      for state, state_name in zip(state_list, state_name_list):
-        utils.save_checkpoint(
-            state=state,
-            checkpoint_dir=f'{checkpoint_dir}/{state_name}',
-            keep=config.checkpoints_keep,
-        )
-      logging.info('Pre-training completed!')
 
   ### Training VMP map ###
 
@@ -858,12 +702,14 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       loss_fn=loss,
       loss_fn_kwargs={
           'num_samples_eta': config.num_samples_eta,
+          'num_samples_flow': config.num_samples_elbo,
           'flow_name': config.flow_name,
           'flow_kwargs': config.flow_kwargs,
-          'num_samples_flow': config.num_samples_elbo,
           'vmp_map_name': config.vmp_map_name,
           'vmp_map_kwargs': config.vmp_map_kwargs,
           'params_flow_init_list': params_flow_init_list,
+          'eta_name': 'groups',
+          'eta_dim': config.num_groups,
           'eta_sampling_a': config.eta_sampling_a,
           'eta_sampling_b': config.eta_sampling_b,
       },
@@ -872,8 +718,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   update_states_jit = jax.jit(update_states_jit)
 
   # Compute average ELBO in two stages for evaluation
-  @jax.jit
-  def elbo_avg_jit(state_list, batch, prng_key, eta_sampling_a, eta_sampling_b):
+  def elbo_validation_jit(state_list, batch, prng_key, eta_sampling_a,
+                          eta_sampling_b):
     prng_seq = hk.PRNGSequence(prng_key)
 
     etas_avg_elbo = jax.random.beta(
@@ -896,17 +742,19 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
             params_tuple=params_flow_tuple_i,
             batch=batch,
             prng_key=next(prng_seq),
+            num_samples=config.num_samples_eval,
             flow_name=config.flow_name,
             flow_kwargs=config.flow_kwargs,
-            num_samples_flow=config.num_samples_eval,
             smi_eta=smi_eta_i,
         ))(params_flow_tuple, {
             'groups': etas_avg_elbo
         })
     return elbo_dict_val
 
+  elbo_validation_jit = jax.jit(elbo_validation_jit)
+
   if state_list[0].step < config.training_steps:
-    logging.info('Training VMP-map...')
+    logging.info('Training Variational Meta-Posterior (VMP-map)...')
 
   # Reset random key sequence
   prng_seq = hk.PRNGSequence(config.seed)
@@ -955,8 +803,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         step=state_list[0].step - 1,
     )
 
-    if state_list[0].step % 100 == 0:
-      elbo_avg_dict = elbo_avg_jit(
+    if state_list[0].step % config.eval_steps == 0:
+      elbo_avg_dict = elbo_validation_jit(
           state_list=state_list,
           batch=train_ds,
           prng_key=next(prng_seq),
@@ -1014,11 +862,12 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
             step=state_list[0].step,
         )
 
+    # Save checkpoints
     if (state_list[0].step) % config.checkpoint_steps == 0:
-      for state, state_name in zip(state_list, state_name_list):
+      for state_i, state_name_i in zip(state_list, state_name_list):
         utils.save_checkpoint(
-            state=state,
-            checkpoint_dir=f'{checkpoint_dir}/{state_name}',
+            state=state_i,
+            checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
             keep=config.checkpoints_keep,
         )
 
@@ -1027,12 +876,12 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   logging.info('Final training step: %i', state_list[0].step)
 
-  # Saving checkpoint at the end of the training process
+  # Save checkpoints at the end of the training process
   # (in case training_steps is not multiple of checkpoint_steps)
-  for state, state_name in zip(state_list, state_name_list):
+  for state_i, state_name_i in zip(state_list, state_name_list):
     utils.save_checkpoint(
-        state=state,
-        checkpoint_dir=f'{checkpoint_dir}/{state_name}',
+        state=state_i,
+        checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
         keep=config.checkpoints_keep,
     )
 
@@ -1053,14 +902,4 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   )
   plt.close()
 
-  return state
-
-
-# # For debugging
-# config = get_config()
-# # workdir = pathlib.Path.home() / 'smi/output/debug'
-# workdir = pathlib.Path.home() / 'smi/output/random_effects/spline/vmp_mlp'
-# config.state_flow_init_path = str(
-#     pathlib.Path.home() /
-#     ('smi/output/random_effects/spline/' + 'init/checkpoints/ckpt_030000'))
-# train_and_evaluate(config, workdir)
+  return state_list

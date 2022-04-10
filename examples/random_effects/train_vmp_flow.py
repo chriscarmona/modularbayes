@@ -23,7 +23,7 @@ import flows
 import log_prob_fun
 import plot
 
-from train_flow import compute_elpd
+from train_flow import compute_elpd, get_dataset, make_optimizer
 
 from modularbayes.utils.training import TrainState
 from modularbayes.typing import (Any, Array, Batch, ConfigDict, Dict, List,
@@ -39,53 +39,8 @@ np.set_printoptions(suppress=True, precision=4)
 compute_elpd_jit = jax.jit(compute_elpd)
 
 
-def get_dataset(
-    num_obs_groups: Array,
-    loc_groups: Array,
-    scale_groups: Array,
-    prng_key: PRNGKey,
-) -> Dict[str, Array]:
-  """Generate random effects data as in Liu 2009."""
-
-  num_groups = len(num_obs_groups)
-  assert len(loc_groups) == num_groups
-  assert len(scale_groups) == num_groups
-
-  num_obs_groups = jnp.array(num_obs_groups).astype(int)
-  loc_groups = jnp.array(loc_groups)
-  scale_groups = jnp.array(scale_groups)
-
-  loc_pointwise = jnp.repeat(loc_groups, num_obs_groups)
-  scale_pointwise = jnp.repeat(scale_groups, num_obs_groups)
-
-  z = jax.random.normal(key=prng_key, shape=loc_pointwise.shape)
-
-  data = {
-      'Y': loc_pointwise + z * scale_pointwise,
-      'group': jnp.repeat(jnp.arange(num_groups), num_obs_groups),
-      'num_obs_groups': num_obs_groups,
-  }
-
-  return data
-
-
 def make_optimizer_eta(learning_rate: float) -> optax.GradientTransformation:
   optimizer = optax.adabelief(learning_rate=learning_rate)
-  return optimizer
-
-
-def make_optimizer(
-    lr_schedule_name,
-    lr_schedule_kwargs,
-    grad_clip_value,
-) -> optax.GradientTransformation:
-  """Define optimizer to train the Flow."""
-  schedule = getattr(optax, lr_schedule_name)(**lr_schedule_kwargs)
-
-  optimizer = optax.chain(*[
-      optax.clip_by_global_norm(max_norm=grad_clip_value),
-      optax.adabelief(learning_rate=schedule),
-  ])
   return optimizer
 
 
@@ -172,7 +127,7 @@ def sample_all_flows(
     prng_key: PRNGKey,
     flow_name: str,
     flow_kwargs: Dict[str, Any],
-    smi_eta: Optional[SmiEta],
+    smi_eta: SmiEta,
 ) -> Dict[str, Any]:
   """Sample from model posterior"""
 
@@ -499,6 +454,7 @@ def log_images(
   # Plot posterior samples
   key_flow = next(prng_seq)
   for i in range(eta_plot.shape[0]):
+    # Sample from flow
     q_distr_out = sample_all_flows(
         params_tuple=[state.params for state in state_list],
         prng_key=key_flow,
@@ -747,6 +703,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   for line in summary.split("\n"):
     logging.info(line)
 
+  # Jit function to update training states
   update_states_jit = lambda state_list, batch, prng_key: utils.update_states(
       state_list=state_list,
       batch=batch,
@@ -764,7 +721,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   update_states_jit = jax.jit(update_states_jit)
 
   elbo_validation_jit = lambda state_list, batch, prng_key: elbo_estimate_along_eta(
-      params_tuple=tuple(state.params for state in state_list),
+      params_tuple=[state.params for state in state_list],
       batch=batch,
       prng_key=prng_key,
       num_samples=config.num_samples_eval,
@@ -809,7 +766,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   if state_list[0].step < config.training_steps:
     save_after_training = True
-    logging.info('Training variational posterior...')
+    logging.info('Training Variational Meta-Posterior (VMP-flow)...')
     # Reset random key sequence
     prng_seq = hk.PRNGSequence(config.seed)
 
@@ -875,10 +832,10 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         )
 
     if state_list[0].step % config.checkpoint_steps == 0:
-      for state, state_name in zip(state_list, state_name_list):
+      for state_i, state_name_i in zip(state_list, state_name_list):
         utils.save_checkpoint(
-            state=state,
-            checkpoint_dir=f'{checkpoint_dir}/{state_name}',
+            state=state_i,
+            checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
             keep=config.checkpoints_keep,
         )
 
@@ -1020,10 +977,10 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   # Saving checkpoint at the end of the training process
   # (in case training_steps is not multiple of checkpoint_steps)
   if save_after_training:
-    for state, state_name in zip(state_list, state_name_list):
+    for state_i, state_name_i in zip(state_list, state_name_list):
       utils.save_checkpoint(
-          state=state,
-          checkpoint_dir=f'{checkpoint_dir}/{state_name}',
+          state=state_i,
+          checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
           keep=config.checkpoints_keep,
       )
 
@@ -1048,11 +1005,4 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       num_samples_elpd=config.num_samples_elpd,
   )
 
-  return state
-
-
-# # For debugging
-# config = get_config()
-# # workdir = pathlib.Path.home() / 'smi/output/debug'
-# workdir = pathlib.Path.home() / 'smi/output/random_effects/spline/vmp_mlp2'
-# train_and_evaluate(config, workdir)
+  return state_list

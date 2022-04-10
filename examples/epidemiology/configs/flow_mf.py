@@ -22,7 +22,7 @@ def get_config():
   config.num_samples_elbo = 100
 
   # Number of training steps to run.
-  config.training_steps = 10_000
+  config.training_steps = 2_000
 
   # Optimizer.
   config.optim_kwargs = ml_collections.ConfigDict()
@@ -40,11 +40,8 @@ def get_config():
       'end_value': None,
   }
 
-  # Number of training steps with random eta
-  config.random_eta_steps = 0
-
   # How often to evaluate the model.
-  config.eval_steps = config.training_steps / 20
+  config.eval_steps = config.training_steps / 10
   config.num_samples_eval = 5_000
 
   # Initial seed for random numbers.
@@ -61,9 +58,6 @@ def get_config():
 
   # How many checkpoints to keep.
   config.checkpoints_keep = 1
-
-  # Optional path to initialize the state
-  config.state_flow_init_path = ''
 
   config.num_samples_log_prob_test = 10_000
 

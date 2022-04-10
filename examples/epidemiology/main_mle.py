@@ -8,9 +8,8 @@ from jax import numpy as jnp
 import haiku as hk
 import optax
 
+import data
 import log_prob_fun
-
-import modularbayes
 
 np.set_printoptions(suppress=True, precision=4)
 
@@ -24,12 +23,12 @@ if __name__ == '__main__':
 
   learning_rate = 1e-1
   training_steps = 1000
-  eval_steps = int(training_steps / 20)
+  eval_steps = int(training_steps / 10)
 
-  data = dict(
+  train_ds = dict(
       zip(['Z', 'N', 'Y', 'T'],
-          jnp.split(modularbayes.data.epidemiology.to_numpy(), 4, axis=-1)))
-  data = {key: value.squeeze() for key, value in data.items()}
+          jnp.split(data.epidemiology.to_numpy(), 4, axis=-1)))
+  train_ds = {key: value.squeeze() for key, value in train_ds.items()}
 
   @hk.without_apply_rng
   @hk.transform
@@ -80,8 +79,8 @@ if __name__ == '__main__':
 
   # Define initial state
   def initial_state():
-    params = loglik.init(next(prng_seq), batch=data)
-    loglik.apply(params, batch=data)
+    params = loglik.init(next(prng_seq), batch=train_ds)
+    loglik.apply(params, batch=train_ds)
     opt_state = make_optimizer(learning_rate).init(params)
     return TrainState(params, opt_state, 0)
 
@@ -108,7 +107,7 @@ if __name__ == '__main__':
   pbar = range(int(training_steps) + 1)
   for train_step in pbar:
     # step=0
-    train_state, train_metrics = update(state=train_state, batch=data)
+    train_state, train_metrics = update(state=train_state, batch=train_ds)
     if (train_step + 1) % eval_steps == 0:
       print(f"STEP: {train_step}; training loss: {train_metrics['loss']:.3f}")
 

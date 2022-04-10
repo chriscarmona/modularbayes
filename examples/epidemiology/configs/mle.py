@@ -11,7 +11,7 @@ def get_config():
 
   config.learning_rate = 1e-1
   config.training_steps = 1000
-  config.eval_steps = int(config.training_steps / 20)
+  config.eval_steps = int(config.training_steps / 10)
 
   config.seed = 0
 

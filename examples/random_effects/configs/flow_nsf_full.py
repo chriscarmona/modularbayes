@@ -58,12 +58,8 @@ def get_config():
       'end_value': None,
   }
 
-  # Number of training steps with random eta
-  # config.random_eta_steps = 5_000
-  config.random_eta_steps = int(config.training_steps / 3)
-
   # How often to evaluate the model.
-  config.eval_steps = int(config.training_steps / 20)
+  config.eval_steps = int(config.training_steps / 10)
 
   # Initial seed for random numbers.
   config.seed = 0
@@ -81,9 +77,6 @@ def get_config():
 
   # How many checkpoints to keep.
   config.checkpoints_keep = 1
-
-  # Optional path to initialize the state
-  config.state_flow_init_path = ''
 
   config.num_samples_log_prob_test = 10_000
 
