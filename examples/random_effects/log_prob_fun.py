@@ -3,7 +3,7 @@
 import jax.numpy as jnp
 import distrax
 
-from modularbayes.typing import Any, Array, Batch, Dict, Optional, SmiEta
+from modularbayes._src.typing import Any, Array, Batch, Dict, Optional, SmiEta
 
 
 # Joint distribution (data and params)

@@ -1,7 +1,5 @@
 """Plot methods for the random effects model."""
 
-from typing import Any, Dict, Mapping
-
 import pathlib
 import warnings
 
@@ -10,16 +8,11 @@ import numpy as np
 import pandas as pd
 
 import seaborn as sns
+from seaborn import JointGrid
 
-from typing import Optional, Tuple
-from modularbayes import utils
-
-from flax.metrics import tensorboard
-
-Array = np.ndarray
-SmiEta = Mapping[str, np.ndarray]
-SummaryWriter = tensorboard.SummaryWriter
-JointGrid = sns.JointGrid
+from modularbayes import plot_to_image, normalize_images
+from modularbayes._src.typing import (Any, Array, Dict, Optional, SummaryWriter,
+                                      Tuple)
 
 
 def plot_beta_sigma(
@@ -155,7 +148,7 @@ def posterior_samples(
     if workdir_png:
       fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
     # summary_writer.image(plot_name, images[-1], step=step)
-    images.append(utils.plot_to_image(fig))
+    images.append(plot_to_image(fig))
 
   # Plot relation: sigma vs tau, group 1
   plot_name = "rnd_eff_sigma_tau_group_1"
@@ -171,8 +164,8 @@ def posterior_samples(
   fig = grid.fig
   if workdir_png:
     fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
-  # summary_writer.image(plot_name, utils.plot_to_image(fig), step=step)
-  images.append(utils.plot_to_image(fig))
+  # summary_writer.image(plot_name, plot_to_image(fig), step=step)
+  images.append(plot_to_image(fig))
 
   # Same height and width in all images
   h, w = max([x.shape[1] for x in images]), max([x.shape[2] for x in images])
@@ -189,7 +182,7 @@ def posterior_samples(
     plot_name = plot_name + ("" if (suffix is None) else ("_" + suffix))
     summary_writer.image(
         tag=plot_name,
-        image=utils.misc.normalize_images(images),
+        image=normalize_images(images),
         step=step,
         max_outputs=len(images),
     )

@@ -13,7 +13,7 @@ def get_config():
   config.loc_groups = [10., 5.] + [0. for _ in range(config.num_groups - 2)]
   config.scale_groups = [1. for _ in range(config.num_groups)]
 
-  config.method = 'vmp_map'
+  config.method = 'flow'
 
   # Defined in `flows`.
   config.flow_name = 'nsf'
@@ -31,23 +31,28 @@ def get_config():
   # the upper bound of the spline's range
   config.flow_kwargs.range_max = 40.
 
-  config.num_samples_elbo = 100
-  config.num_samples_eval = 5_000
+  # SMI degree of influence
+  config.smi_eta_groups = [1., 0.0001
+                          ] + [1. for _ in range(config.num_groups - 2)]
+  config.flow_kwargs.smi_eta = {'groups': config.smi_eta_groups}
+  config.plot_suffix = 'cut3'
+
+  # Number of samples used to estimate the ELBO.
+  config.num_samples_elbo = 200
 
   # Number of training steps to run.
-  config.training_steps = 100_000
+  config.training_steps = 30_000
 
-  # Optimizer
+  # Optimizer.
   config.optim_kwargs = ml_collections.ConfigDict()
   config.optim_kwargs.grad_clip_value = 1.0
-  # Using SGD with warm restarts, from Loschilov & Hutter (arXiv:1608.03983).
   config.optim_kwargs.lr_schedule_name = 'warmup_exponential_decay_schedule'
   config.optim_kwargs.lr_schedule_kwargs = ml_collections.ConfigDict()
   config.optim_kwargs.lr_schedule_kwargs = {
       'init_value': 0.,
-      'peak_value': 3e-4,
-      'warmup_steps': 3_000,
-      'transition_steps': 20_000,
+      'peak_value': 2e-3,
+      'warmup_steps': 2_000,
+      'transition_steps': 10_000,
       'decay_rate': 0.5,
       'transition_begin': 0,
       'staircase': False,
@@ -56,9 +61,10 @@ def get_config():
 
   # How often to evaluate the model.
   config.eval_steps = int(config.training_steps / 10)
+  # config.eval_steps = config.training_steps / 10
 
   # Initial seed for random numbers.
-  config.seed = 123
+  config.seed = 0
 
   # How often to log images to monitor convergence.
   config.log_img_steps = int(config.training_steps / 10)
@@ -66,13 +72,7 @@ def get_config():
   # Number of posteriors samples used in the plots.
   config.num_samples_plot = 10_000
 
-  config.eta_plot = [
-      [1. for _ in range(config.num_groups)],
-      [0.0001, 1.] + [1. for _ in range(config.num_groups - 2)],
-      [0.0001, 0.0001] + [1. for _ in range(config.num_groups - 2)],
-      [1., 0.0001] + [1. for _ in range(config.num_groups - 2)],
-  ]
-  config.suffix_eta_plot = ['full', 'cut1', 'cut2', 'cut3']
+  config.num_samples_eval = 1_000
 
   # How often to save model checkpoints.
   config.checkpoint_steps = int(config.training_steps / 4)
@@ -80,18 +80,6 @@ def get_config():
   # How many checkpoints to keep.
   config.checkpoints_keep = 1
 
-  # Arguments for the Variational Meta-Posterior map
-  config.vmp_map_name = 'VmpMap'
-  config.vmp_map_kwargs = ml_collections.ConfigDict()
-  eta_dim = config.num_groups
-  config.vmp_map_kwargs.hidden_sizes = [eta_dim * 10] * 5 + [20]
-
-  # Number of samples of eta for Meta-Posterior training
-  config.num_samples_eta = 25
-  config.eta_sampling_a = 0.2
-  config.eta_sampling_b = 1.0
-
-  config.lambda_idx_plot = [50 * i for i in range(5)]
-  config.constant_lambda_ignore_plot = True
+  config.num_samples_log_prob_test = 10_000
 
   return config

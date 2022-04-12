@@ -7,10 +7,8 @@ import haiku as hk
 import distrax
 from tensorflow_probability.substrates import jax as tfp
 
-from modularbayes import bijectors
-from modularbayes import distributions
-
-from modularbayes.typing import Any, Array, Dict, Optional, Sequence
+import modularbayes
+from modularbayes._src.typing import Any, Array, Dict, Optional, Sequence
 
 tfb = tfp.bijectors
 tfd = tfp.distributions
@@ -43,7 +41,7 @@ class MeanField(hk.Module):
 def mean_field_sigma(
     num_groups: int,
     **_,
-) -> distributions.Transformed:
+) -> modularbayes.Transformed:
   """Creates a Mean Field Flow."""
 
   flow_dim = num_groups  # sigma's
@@ -68,7 +66,7 @@ def mean_field_sigma(
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
 
-  q_distr = distributions.Transformed(base_distribution, flow)
+  q_distr = modularbayes.Transformed(base_distribution, flow)
 
   return q_distr
 
@@ -76,7 +74,7 @@ def mean_field_sigma(
 def mean_field_beta_tau(
     num_groups: int,
     **_,
-) -> distributions.ConditionalTransformed:
+) -> modularbayes.ConditionalTransformed:
   """Creates a Mean Field Flow."""
 
   flow_dim = num_groups + 1  # beta's and tau
@@ -101,15 +99,16 @@ def mean_field_beta_tau(
   ]
   block_sizes = [num_groups, 1]
   flow_layers.append(
-      bijectors.Blockwise(bijectors=block_bijectors, block_sizes=block_sizes))
+      modularbayes.Blockwise(
+          bijectors=block_bijectors, block_sizes=block_sizes))
 
   # Chain all layers together
-  flow = bijectors.ConditionalChain(flow_layers[::-1])
+  flow = modularbayes.ConditionalChain(flow_layers[::-1])
 
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
 
-  q_distr = distributions.ConditionalTransformed(base_distribution, flow)
+  q_distr = modularbayes.ConditionalTransformed(base_distribution, flow)
 
   return q_distr
 
@@ -155,7 +154,7 @@ def nsf_sigma(
     range_min: float = 0.,
     range_max: float = 1.,
     **_,
-) -> distributions.Transformed:
+) -> modularbayes.Transformed:
   """Creates the Rational Quadratic Flow model.
 
   Args:
@@ -213,7 +212,7 @@ def nsf_sigma(
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
 
-  q_distr = distributions.Transformed(base_distribution, flow)
+  q_distr = modularbayes.Transformed(base_distribution, flow)
 
   return q_distr
 
@@ -226,7 +225,7 @@ def nsf_beta_tau(
     range_min: float = 0.,
     range_max: float = 1.,
     **_,
-) -> distributions.ConditionalTransformed:
+) -> modularbayes.ConditionalTransformed:
   """Creates the Rational Quadratic Flow model.
 
   Args:
@@ -261,7 +260,7 @@ def nsf_beta_tau(
   # for a total of `3 * num_bins + 1` parameters.
 
   for _ in range(num_layers):
-    layer = bijectors.ConditionalMaskedCoupling(
+    layer = modularbayes.ConditionalMaskedCoupling(
         mask=mask,
         bijector=bijector_fn,
         conditioner=CouplingConditioner(
@@ -284,15 +283,16 @@ def nsf_beta_tau(
   ]
   block_sizes = [num_groups, 1]
   flow_layers.append(
-      bijectors.Blockwise(bijectors=block_bijectors, block_sizes=block_sizes))
+      modularbayes.Blockwise(
+          bijectors=block_bijectors, block_sizes=block_sizes))
 
   # Chain all layers together
-  flow = bijectors.ConditionalChain(flow_layers[::-1])
+  flow = modularbayes.ConditionalChain(flow_layers[::-1])
 
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
 
-  q_distr = distributions.ConditionalTransformed(base_distribution, flow)
+  q_distr = modularbayes.ConditionalTransformed(base_distribution, flow)
 
   return q_distr
 
@@ -306,7 +306,7 @@ def meta_nsf_sigma(
     range_min: float = 0.,
     range_max: float = 1.,
     **_,
-) -> distributions.ConditionalTransformed:
+) -> modularbayes.ConditionalTransformed:
   """Creates the Rational Quadratic Flow model.
 
   Args:
@@ -340,7 +340,7 @@ def meta_nsf_sigma(
   # for a total of `3 * num_bins + 1` parameters.
 
   for _ in range(num_layers):
-    layer = bijectors.EtaConditionalMaskedCoupling(
+    layer = modularbayes.EtaConditionalMaskedCoupling(
         mask=mask,
         bijector=bijector_fn,
         conditioner_eta=CouplingConditioner(
@@ -365,12 +365,12 @@ def meta_nsf_sigma(
   flow_layers.append(distrax.Block(tfb.Softplus(), 1))
 
   # Chain all layers together
-  flow = bijectors.ConditionalChain(flow_layers[::-1])
+  flow = modularbayes.ConditionalChain(flow_layers[::-1])
 
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
 
-  q_distr = distributions.ConditionalTransformed(base_distribution, flow)
+  q_distr = modularbayes.ConditionalTransformed(base_distribution, flow)
 
   return q_distr
 
@@ -384,7 +384,7 @@ def meta_nsf_beta_tau(
     range_min: float = 0.,
     range_max: float = 1.,
     **_,
-) -> distributions.ConditionalTransformed:
+) -> modularbayes.ConditionalTransformed:
   """Creates the Rational Quadratic Flow model.
 
   Args:
@@ -419,7 +419,7 @@ def meta_nsf_beta_tau(
   # for a total of `3 * num_bins + 1` parameters.
 
   for _ in range(num_layers):
-    layer = bijectors.EtaConditionalMaskedCoupling(
+    layer = modularbayes.EtaConditionalMaskedCoupling(
         mask=mask,
         bijector=bijector_fn,
         conditioner_eta=CouplingConditioner(
@@ -448,15 +448,16 @@ def meta_nsf_beta_tau(
   ]
   block_sizes = [num_groups, 1]
   flow_layers.append(
-      bijectors.Blockwise(bijectors=block_bijectors, block_sizes=block_sizes))
+      modularbayes.Blockwise(
+          bijectors=block_bijectors, block_sizes=block_sizes))
 
   # Chain all layers together
-  flow = bijectors.ConditionalChain(flow_layers[::-1])
+  flow = modularbayes.ConditionalChain(flow_layers[::-1])
 
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
 
-  q_distr = distributions.ConditionalTransformed(base_distribution, flow)
+  q_distr = modularbayes.ConditionalTransformed(base_distribution, flow)
 
   return q_distr
 

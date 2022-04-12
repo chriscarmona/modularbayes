@@ -1,13 +1,9 @@
 """Plot methods for the epidemiology model."""
 
-from modularbayes.typing import (Any, Array, Mapping, Optional, SummaryWriter,
-                                 Tuple)
-
 import warnings
 
 import pathlib
 
-import math
 import numpy as np
 import pandas as pd
 
@@ -17,11 +13,10 @@ from matplotlib.axes import Axes
 
 import seaborn as sns
 
-from flax.metrics import tensorboard
+from modularbayes import colour_fader, plot_to_image, normalize_images
 
-from modularbayes.utils import colour_fader
-
-from modularbayes import utils
+from modularbayes._src.typing import (Any, Array, Mapping, Optional,
+                                      SummaryWriter, Tuple)
 
 JointGrid = sns.JointGrid
 
@@ -142,8 +137,8 @@ def posterior_samples(
   )
   if workdir_png:
     fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
-  # summary_writer.image(plot_name, utils.plot_to_image(fig), step=step)
-  images.append(utils.plot_to_image(fig))
+  # summary_writer.image(plot_name, plot_to_image(fig), step=step)
+  images.append(plot_to_image(fig))
 
   # Plot relation: theta_2 vs theta_1
   plot_name = "epidemiology_theta"
@@ -157,8 +152,8 @@ def posterior_samples(
   fig = grid.fig
   if workdir_png:
     fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
-  # summary_writer.image(plot_name, utils.plot_to_image(fig), step=step)
-  images.append(utils.plot_to_image(fig))
+  # summary_writer.image(plot_name, plot_to_image(fig), step=step)
+  images.append(plot_to_image(fig))
 
   # Log all images
   if summary_writer:
@@ -166,7 +161,7 @@ def posterior_samples(
     plot_name = plot_name + ("" if (eta is None) else f"_eta_{eta:.3f}")
     summary_writer.image(
         tag=plot_name,
-        image=utils.misc.normalize_images(images),
+        image=normalize_images(images),
         step=step,
         max_outputs=len(images),
     )

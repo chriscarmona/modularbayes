@@ -13,7 +13,7 @@ import jax
 from jax import numpy as jnp
 from jax import lax
 
-from modularbayes.typing import Array, ConfigDict, Dict, List, Optional, Tuple
+from modularbayes._src.typing import Array, ConfigDict, Dict, List, Optional, Tuple
 
 
 def as_lower_chol(x: Array) -> Array:

@@ -14,6 +14,7 @@ from flax.metrics.tensorboard import SummaryWriter
 
 from chex import Array, PRNGKey
 
+from collections import OrderedDict
 from ml_collections import ConfigDict
 
 from tensorflow_probability.substrates import jax as tfp

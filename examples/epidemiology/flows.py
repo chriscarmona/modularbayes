@@ -7,10 +7,8 @@ import haiku as hk
 import distrax
 from tensorflow_probability.substrates import jax as tfp
 
-from modularbayes import utils
-from modularbayes import bijectors
-from modularbayes import distributions
-from modularbayes.typing import Any, Array, Dict, Optional, Sequence
+import modularbayes
+from modularbayes._src.typing import Any, Array, Dict, Optional, Sequence
 
 tfb = tfp.bijectors
 tfd = tfp.distributions
@@ -67,7 +65,7 @@ def mean_field_phi(
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
 
-  q_distr = distributions.Transformed(base_distribution, flow)
+  q_distr = modularbayes.Transformed(base_distribution, flow)
 
   return q_distr
 
@@ -75,7 +73,7 @@ def mean_field_phi(
 def mean_field_theta(
     theta_dim: int,
     **_,
-) -> distrax.Transformed:
+) -> modularbayes.ConditionalTransformed:
   """Creates a Mean Field Flow."""
 
   flow_dim = theta_dim
@@ -103,67 +101,16 @@ def mean_field_theta(
       1,
   ]
   flow_layers.append(
-      bijectors.Blockwise(bijectors=block_bijectors, block_sizes=block_sizes))
+      modularbayes.Blockwise(
+          bijectors=block_bijectors, block_sizes=block_sizes))
 
   # Chain all layers together
-  flow = bijectors.ConditionalChain(flow_layers[::-1])
+  flow = modularbayes.ConditionalChain(flow_layers[::-1])
 
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
 
-  q_distr = distributions.ConditionalTransformed(base_distribution, flow)
-
-  return q_distr
-
-
-def gaussian(
-    phi_dim: int,
-    theta_dim: int,
-    is_smi: bool,
-    **_,
-) -> distrax.Transformed:
-  """Creates a Mean Field Flow."""
-  # event_shape = (15,)
-
-  shared_params_dim = phi_dim
-  refit_params_dim = theta_dim
-
-  flow_dim = shared_params_dim + (2 if is_smi else 1) * refit_params_dim
-
-  event_shape = (flow_dim,)
-
-  flow_layers = []
-
-  # Layer 1: Scale by cov_chol, a lower triangular matrix
-  _pre_cov_chol = hk.get_parameter(
-      "_pre_cov_chol", event_shape * 2, init=jnp.zeros)
-  cov_chol = utils.as_lower_chol(_pre_cov_chol)
-  flow_layers.append(tfb.ScaleMatvecTriL(scale_tril=cov_chol))
-
-  # Layer 2: Shift by loc
-  loc = hk.get_parameter("loc", event_shape, init=jnp.zeros)
-  flow_layers.append(distrax.Block(tfb.Shift(shift=loc), 1))
-
-  # Layer 3: Map values to parameter domain
-  # phi goes to [0,1]
-  # theta1 goes to [-Inf,Inf]
-  # theta2 goes to [0,Inf]
-  block_bijectors = [distrax.Block(distrax.Sigmoid(), 1)
-                    ] + (2 if is_smi else 1) * [
-                        distrax.Block(tfb.Identity(), 1),
-                        distrax.Block(tfb.Softplus(), 1)
-                    ]
-  block_sizes = [phi_dim] + (2 if is_smi else 1) * [1, 1]
-  flow_layers.append(
-      bijectors.Blockwise(bijectors=block_bijectors, block_sizes=block_sizes))
-
-  # Chain all layers together
-  flow = distrax.Chain(flow_layers[::-1])
-
-  base_distribution = distrax.MultivariateNormalDiag(
-      loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
-
-  q_distr = distrax.Transformed(base_distribution, flow)
+  q_distr = modularbayes.ConditionalTransformed(base_distribution, flow)
 
   return q_distr
 
@@ -271,7 +218,7 @@ def nsf_phi(
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
 
-  return distributions.Transformed(base_distribution, flow)
+  return modularbayes.Transformed(base_distribution, flow)
 
 
 def nsf_theta(
@@ -282,7 +229,7 @@ def nsf_theta(
     range_min: float = 0.,
     range_max: float = 1.,
     **_,
-) -> distrax.Transformed:
+) -> modularbayes.ConditionalTransformed:
   """Creates the Rational Quadratic Flow model.
 
   Args:
@@ -316,7 +263,7 @@ def nsf_theta(
   # for a total of `3 * num_bins + 1` parameters.
 
   for _ in range(num_layers):
-    layer = bijectors.ConditionalMaskedCoupling(
+    layer = modularbayes.ConditionalMaskedCoupling(
         mask=mask,
         bijector=bijector_fn,
         conditioner=CouplingConditioner(
@@ -343,8 +290,9 @@ def nsf_theta(
       1,
   ]
   flow_layers.append(
-      bijectors.Blockwise(bijectors=block_bijectors, block_sizes=block_sizes))
-  flow = bijectors.ConditionalChain(flow_layers[::-1])
+      modularbayes.Blockwise(
+          bijectors=block_bijectors, block_sizes=block_sizes))
+  flow = modularbayes.ConditionalChain(flow_layers[::-1])
 
   # base_distribution = distrax.Independent(
   #     distrax.Uniform(low=jnp.zeros(event_shape), high=jnp.ones(event_shape)),
@@ -353,7 +301,7 @@ def nsf_theta(
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
 
-  return distributions.ConditionalTransformed(base_distribution, flow)
+  return modularbayes.ConditionalTransformed(base_distribution, flow)
 
 
 def meta_nsf_phi(
@@ -365,7 +313,7 @@ def meta_nsf_phi(
     range_min: float = 0.,
     range_max: float = 1.,
     **_,
-) -> distributions.ConditionalTransformed:
+) -> modularbayes.ConditionalTransformed:
   """Creates the Rational Quadratic Flow model.
 
   Args:
@@ -400,7 +348,7 @@ def meta_nsf_phi(
   # for a total of `3 * num_bins + 1` parameters.
 
   for _ in range(num_layers):
-    layer = bijectors.EtaConditionalMaskedCoupling(
+    layer = modularbayes.EtaConditionalMaskedCoupling(
         mask=mask,
         bijector=bijector_fn,
         conditioner_eta=CouplingConditioner(
@@ -424,7 +372,7 @@ def meta_nsf_phi(
   # phi goes to [0,1]
   flow_layers.append(distrax.Block(distrax.Sigmoid(), 1))
 
-  flow = bijectors.ConditionalChain(flow_layers[::-1])
+  flow = modularbayes.ConditionalChain(flow_layers[::-1])
 
   # base_distribution = distrax.Independent(
   #     distrax.Uniform(low=jnp.zeros(event_shape), high=jnp.ones(event_shape)),
@@ -433,7 +381,7 @@ def meta_nsf_phi(
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
 
-  return distributions.ConditionalTransformed(base_distribution, flow)
+  return modularbayes.ConditionalTransformed(base_distribution, flow)
 
 
 def meta_nsf_theta(
@@ -445,7 +393,7 @@ def meta_nsf_theta(
     range_min: float = 0.,
     range_max: float = 1.,
     **_,
-) -> distributions.ConditionalTransformed:
+) -> modularbayes.ConditionalTransformed:
   """Creates the Rational Quadratic Flow model.
 
   Args:
@@ -479,7 +427,7 @@ def meta_nsf_theta(
   # for a total of `3 * num_bins + 1` parameters.
 
   for _ in range(num_layers):
-    layer = bijectors.EtaConditionalMaskedCoupling(
+    layer = modularbayes.EtaConditionalMaskedCoupling(
         mask=mask,
         bijector=bijector_fn,
         conditioner_eta=CouplingConditioner(
@@ -512,13 +460,14 @@ def meta_nsf_theta(
       1,
   ]
   flow_layers.append(
-      bijectors.Blockwise(bijectors=block_bijectors, block_sizes=block_sizes))
-  flow = bijectors.ConditionalChain(flow_layers[::-1])
+      modularbayes.Blockwise(
+          bijectors=block_bijectors, block_sizes=block_sizes))
+  flow = modularbayes.ConditionalChain(flow_layers[::-1])
 
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
 
-  q_distr = distributions.ConditionalTransformed(base_distribution, flow)
+  q_distr = modularbayes.ConditionalTransformed(base_distribution, flow)
 
   return q_distr
 

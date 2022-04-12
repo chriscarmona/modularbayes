@@ -6,7 +6,7 @@ import haiku as hk
 import jax
 from jax import numpy as jnp
 
-from modularbayes.typing import Array, List, Optional
+from modularbayes._src.typing import Array, List, Optional
 
 
 class VmpMap(hk.Module):

@@ -1,7 +1,5 @@
 """Probability functions for the Epidemiology model."""
 
-import numpy as np
-
 import jax
 import jax.numpy as jnp
 import distrax
@@ -9,8 +7,7 @@ from tensorflow_probability.substrates import jax as tfp
 
 tfd = tfp.distributions
 
-from modularbayes import evaluation
-from modularbayes.typing import (Any, Array, Batch, Dict, List, Optional,
+from modularbayes._src.typing import (Any, Array, Batch, Dict, List, Optional,
                                  SmiEta)
 
 
@@ -173,44 +170,3 @@ def log_prob_joint(
   assert log_prob.shape == (num_samples,)
 
   return log_prob
-
-
-def elpd(
-    batch: Batch,
-    posterior_sample_dict: Dict[str, Any],
-) -> Array:
-  """Expected Log-pointwise Predictive Density (ELPD).
-
-  Computes Monte-Carlo estimates for the ELPD of the model.
-
-  Args:
-    batch: Dictionary with the data. Must contains 4 items 'Z','Y','T' and 'N',
-      each one of shape (n,).
-    posterior_sample_dict: Dictionary with values for the model parameters. Must
-      contain 2 items: 'phi' and 'theta', arrays with shapes (s, n) and (s, 2),
-      respectively.
-
-  Output:
-    Dictionary with the following items:
-      'elpd_waic' : Float. WAIC estimate of the ELPD.
-      'lpd' : Float. The computed log pointwise predictive density.
-
-
-  Reference:
-    A. Vehtari, A. Gelman, and J. Gabry. Practical Bayesian model evaluation
-    using leave-one-out cross-validation and WAIC.
-    [https://doi.org/10.1007/s11222-016-9696-4]
-  """
-
-  n_obs = batch['Z'].shape[0]
-
-  num_samples, _ = posterior_sample_dict['phi'].shape
-  num_modules = 2
-
-  # Batched log-likelihood
-  loglik = log_lik_vectorised(batch['Z'], batch['Y'], batch['N'], batch['T'],
-                              posterior_sample_dict['phi'],
-                              posterior_sample_dict['theta'])
-  assert loglik.shape == (num_samples, n_obs, num_modules)
-
-  return evaluation.elpd_waic(loglik[:, :, 0])

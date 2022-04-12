@@ -52,6 +52,8 @@ python3 $SMI_DIR/examples/random_effects/main.py --config=$SMI_DIR/examples/rand
                                                  --workdir=$WORK_DIR/random_effects/nsf/cut1
 python3 $SMI_DIR/examples/random_effects/main.py --config=$SMI_DIR/examples/random_effects/configs/flow_nsf_cut2.py \
                                                  --workdir=$WORK_DIR/random_effects/nsf/cut2
+python3 $SMI_DIR/examples/random_effects/main.py --config=$SMI_DIR/examples/random_effects/configs/flow_nsf_cut3.py \
+                                                 --workdir=$WORK_DIR/random_effects/nsf/cut3
 ## Variational Meta-Posterior via VMP-map
 ### Neural Spline Flow
 python3 $SMI_DIR/examples/random_effects/main.py --config=$SMI_DIR/examples/random_effects/configs/flow_nsf_vmp_map.py \

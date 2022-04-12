@@ -19,11 +19,13 @@ import log_prob_fun
 import plot
 import data
 
-from modularbayes import utils
-from modularbayes.utils.training import TrainState
-from modularbayes.typing import (Any, Array, Batch, ConfigDict, Dict, IntLike,
-                                 List, Optional, PRNGKey, Sequence, SmiEta,
-                                 SummaryWriter, Tuple, Union)
+from modularbayes._src.utils.training import TrainState
+from modularbayes import (flatten_dict, initial_state_ckpt, update_states,
+                          save_checkpoint)
+from modularbayes._src.typing import (Any, Array, Batch, ConfigDict, Dict,
+                                      IntLike, List, Optional, PRNGKey,
+                                      Sequence, SmiEta, SummaryWriter, Tuple,
+                                      Union)
 
 # Set high precision for matrix multiplication in jax
 jax.config.update('jax_default_matmul_precision', 'float32')
@@ -385,7 +387,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   #     logdir=workdir, just_logging=jax.host_id() != 0)
   if jax.process_index() == 0:
     summary_writer = tensorboard.SummaryWriter(workdir)
-    summary_writer.hparams(utils.flatten_dict(config))
+    summary_writer.hparams(flatten_dict(config))
   else:
     summary_writer = None
 
@@ -398,7 +400,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   state_name_list.append('phi')
   state_list.append(
-      utils.initial_state_ckpt(
+      initial_state_ckpt(
           checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
           forward_fn=hk.transform(q_distr_phi),
           forward_fn_kwargs={
@@ -422,7 +424,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   state_name_list.append('theta')
   state_list.append(
-      utils.initial_state_ckpt(
+      initial_state_ckpt(
           checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
           forward_fn=hk.transform(q_distr_theta),
           forward_fn_kwargs={
@@ -437,7 +439,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   if config.flow_kwargs.is_smi:
     state_name_list.append('theta_aux')
     state_list.append(
-        utils.initial_state_ckpt(
+        initial_state_ckpt(
             checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
             forward_fn=hk.transform(q_distr_theta),
             forward_fn_kwargs={
@@ -495,7 +497,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     logging.info(line)
 
   # Jit function to update training states
-  update_states_jit = lambda state_list, batch, prng_key, smi_eta: utils.update_states(
+  update_states_jit = lambda state_list, batch, prng_key, smi_eta: update_states(
       state_list=state_list,
       batch=batch,
       prng_key=prng_key,
@@ -590,7 +592,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
     if state_list[0].step % config.checkpoint_steps == 0:
       for state_i, state_name_i in zip(state_list, state_name_list):
-        utils.save_checkpoint(
+        save_checkpoint(
             state=state_i,
             checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
             keep=config.checkpoints_keep,
@@ -604,7 +606,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   # Saving checkpoint at the end of the training process
   # (in case training_steps is not multiple of checkpoint_steps)
   for state_i, state_name_i in zip(state_list, state_name_list):
-    utils.save_checkpoint(
+    save_checkpoint(
         state=state_i,
         checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
         keep=config.checkpoints_keep,

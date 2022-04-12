@@ -6,8 +6,8 @@ from distrax._src.utils import math
 import jax
 import jax.numpy as jnp
 
-from modularbayes.bijectors import ConditionalBijector
-from modularbayes.typing import (Array, BijectorParams, Callable, List,
+from modularbayes import ConditionalBijector
+from modularbayes._src.typing import (Array, BijectorParams, Callable, List,
                                  Optional, Tuple)
 
 

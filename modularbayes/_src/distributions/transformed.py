@@ -2,7 +2,7 @@
 
 import distrax
 
-from modularbayes.typing import Array, IntLike, PRNGKey, Sequence, Tuple, Union
+from modularbayes._src.typing import Array, IntLike, PRNGKey, Sequence, Tuple, Union
 
 import jax
 import jax.numpy as jnp

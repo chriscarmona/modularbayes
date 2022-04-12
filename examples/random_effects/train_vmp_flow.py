@@ -7,7 +7,6 @@ import numpy as np
 
 import matplotlib
 from matplotlib import pyplot as plt
-import seaborn as sns
 
 # from clu import metric_writers
 from flax.metrics import tensorboard
@@ -25,11 +24,13 @@ import plot
 
 from train_flow import compute_elpd, get_dataset, make_optimizer
 
-from modularbayes.utils.training import TrainState
-from modularbayes.typing import (Any, Array, Batch, ConfigDict, Dict, List,
-                                 Optional, PRNGKey, SmiEta, SummaryWriter,
-                                 Tuple)
-from modularbayes import utils
+from modularbayes._src.utils.training import TrainState
+from modularbayes import (plot_to_image, normalize_images, flatten_dict,
+                          initial_state_ckpt, update_state, update_states,
+                          save_checkpoint)
+from modularbayes._src.typing import (Any, Array, Batch, ConfigDict, Dict, List,
+                                      Optional, PRNGKey, SmiEta, SummaryWriter,
+                                      Tuple)
 
 # Set high precision for matrix multiplication in jax
 jax.config.update('jax_default_matmul_precision', 'float32')
@@ -316,9 +317,6 @@ def maximize_elpd(
     config: ConfigDict,
     num_samples_elpd: int,
 ) -> Array:
-  prng_seq = hk.PRNGSequence(prng_key)
-
-  key_search = next(prng_seq)
 
   # Jit the computation of elpd
   elpd_waic_one_eta_jit = lambda state_list_i, prng_key_i, eta_i: elpd_estimate_one_eta(
@@ -510,7 +508,7 @@ def log_images(
     if workdir_png:
       fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
     if summary_writer:
-      images.append(utils.plot_to_image(fig))
+      images.append(plot_to_image(fig))
 
     # Vary eta_0 and eta_2
     plot_name = 'elpd_surface_eta_0_2'
@@ -531,13 +529,13 @@ def log_images(
     if workdir_png:
       fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
     if summary_writer:
-      images.append(utils.plot_to_image(fig))
+      images.append(plot_to_image(fig))
 
     if summary_writer:
       plot_name = 'rnd_eff_elpd_surface'
       summary_writer.image(
           tag=plot_name,
-          image=utils.misc.normalize_images(images),
+          image=normalize_images(images),
           step=state_list[0].step,
       )
 
@@ -587,7 +585,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   #     logdir=workdir, just_logging=jax.host_id() != 0)
   if jax.process_index() == 0:
     summary_writer = tensorboard.SummaryWriter(workdir)
-    summary_writer.hparams(utils.flatten_dict(config))
+    summary_writer.hparams(flatten_dict(config))
   else:
     summary_writer = None
 
@@ -603,7 +601,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   state_name_list.append('sigma')
   state_list.append(
-      utils.initial_state_ckpt(
+      initial_state_ckpt(
           checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
           forward_fn=hk.transform(q_distr_sigma),
           forward_fn_kwargs={
@@ -628,7 +626,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   state_name_list.append('beta_tau')
   state_list.append(
-      utils.initial_state_ckpt(
+      initial_state_ckpt(
           checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
           forward_fn=hk.transform(q_distr_beta_tau),
           forward_fn_kwargs={
@@ -644,7 +642,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   if config.flow_kwargs.is_smi:
     state_name_list.append('beta_tau_aux')
     state_list.append(
-        utils.initial_state_ckpt(
+        initial_state_ckpt(
             checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
             forward_fn=hk.transform(q_distr_beta_tau),
             forward_fn_kwargs={
@@ -704,7 +702,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     logging.info(line)
 
   # Jit function to update training states
-  update_states_jit = lambda state_list, batch, prng_key: utils.update_states(
+  update_states_jit = lambda state_list, batch, prng_key: update_states(
       state_list=state_list,
       batch=batch,
       prng_key=prng_key,
@@ -752,7 +750,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   # )
 
   # Jit optimization of eta
-  update_eta_star_state = lambda eta_star_state, batch, prng_key: utils.update_state(
+  update_eta_star_state = lambda eta_star_state, batch, prng_key: update_state(
       state=eta_star_state,
       batch=batch,
       prng_key=prng_key,
@@ -764,6 +762,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   )
   update_eta_star_state = jax.jit(update_eta_star_state)
 
+  save_after_training = False
   if state_list[0].step < config.training_steps:
     save_after_training = True
     logging.info('Training Variational Meta-Posterior (VMP-flow)...')
@@ -833,7 +832,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
     if state_list[0].step % config.checkpoint_steps == 0:
       for state_i, state_name_i in zip(state_list, state_name_list):
-        utils.save_checkpoint(
+        save_checkpoint(
             state=state_i,
             checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
             keep=config.checkpoints_keep,
@@ -943,7 +942,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   # # )
 
   # # SGD over elpd #
-  # eta_star_state = utils.TrainState(
+  # eta_star_state = TrainState(
   #     params=eta_star,
   #     opt_state=make_optimizer_eta(**config.optim_kwargs_eta).init(eta_star),
   #     step=0,
@@ -955,7 +954,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   #       prng_key=next(prng_seq),
   #   )
   #   # Clip eta_star to [0,1] hypercube
-  #   eta_star_state = utils.TrainState(
+  #   eta_star_state = TrainState(
   #       params=jnp.clip(eta_star_state.params, 0., 1.),
   #       opt_state=eta_star_state.opt_state,
   #       step=eta_star_state.step,
@@ -976,7 +975,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   # (in case training_steps is not multiple of checkpoint_steps)
   if save_after_training:
     for state_i, state_name_i in zip(state_list, state_name_list):
-      utils.save_checkpoint(
+      save_checkpoint(
           state=state_i,
           checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
           keep=config.checkpoints_keep,

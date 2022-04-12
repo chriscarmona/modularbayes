@@ -38,7 +38,7 @@ def get_config():
   config.num_samples_eval = 10_000
 
   # Number of training steps to run.
-  config.training_steps = 50_000
+  config.training_steps = 200_000
 
   # Number of SGD steps to find the best eta
   config.eta_star_steps = 5_000
@@ -53,7 +53,7 @@ def get_config():
       'init_value': 0.,
       'peak_value': 3e-3,
       'warmup_steps': 3_000,
-      'transition_steps': 10_000,
+      'transition_steps': 20_000,
       'decay_rate': 0.5,
       'transition_begin': 0,
       'staircase': False,
@@ -82,8 +82,9 @@ def get_config():
       [1. for _ in range(config.num_groups)],
       [0.0001, 1.] + [1. for _ in range(config.num_groups - 2)],
       [0.0001, 0.0001] + [1. for _ in range(config.num_groups - 2)],
+      [1., 0.0001] + [1. for _ in range(config.num_groups - 2)],
   ]
-  config.suffix_eta_plot = ['full', 'cut1', 'cut2']
+  config.suffix_eta_plot = ['full', 'cut1', 'cut2', 'cut3']
 
   # How often to save model checkpoints.
   config.checkpoint_steps = int(config.training_steps / 4)

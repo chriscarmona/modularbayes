@@ -4,7 +4,7 @@ import abc
 
 from distrax._src.bijectors import bijector as base
 
-from modularbayes.typing import Any, Array, Tuple
+from modularbayes._src.typing import Any, Array, Tuple
 
 
 class ConditionalBijector(base.Bijector):

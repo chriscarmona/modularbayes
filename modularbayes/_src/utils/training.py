@@ -15,7 +15,7 @@ from jax import numpy as jnp
 
 import optax
 
-from modularbayes.typing import (Any, Batch, Callable, Dict, List, Metrics,
+from modularbayes._src.typing import (Any, Batch, Callable, Dict, List, Metrics,
                                  NamedTuple, PRNGKey, Tuple, Union)
 
 

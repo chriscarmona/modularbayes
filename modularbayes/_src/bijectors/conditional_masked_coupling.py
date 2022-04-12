@@ -4,8 +4,8 @@ import distrax
 from distrax._src.utils import math
 import jax.numpy as jnp
 
-from modularbayes.bijectors import ConditionalBijector
-from modularbayes.typing import Array, Tuple
+from modularbayes import ConditionalBijector
+from modularbayes._src.typing import Array, Tuple
 
 
 class ConditionalMaskedCoupling(ConditionalBijector, distrax.MaskedCoupling):

@@ -2,16 +2,16 @@
 
 import distrax
 
-from modularbayes.typing import Array, Optional, Tuple
-from modularbayes import bijectors
+import modularbayes
+from modularbayes._src.typing import Array, Optional, Tuple
 
 
-class ConditionalChain(bijectors.ConditionalBijector, distrax.Chain):
+class ConditionalChain(modularbayes.ConditionalBijector, distrax.Chain):
 
   def forward(self, x: Array, context: Optional[Array] = None) -> Array:
     """Computes y = f(x)."""
     for bijector in reversed(self._bijectors):
-      if isinstance(bijector, bijectors.ConditionalBijector):
+      if isinstance(bijector, modularbayes.ConditionalBijector):
         x = bijector.forward(x, context)
       else:
         x = bijector.forward(x)
@@ -20,7 +20,7 @@ class ConditionalChain(bijectors.ConditionalBijector, distrax.Chain):
   def inverse(self, y: Array, context: Optional[Array] = None) -> Array:
     """Computes x = f^{-1}(y)."""
     for bijector in self._bijectors:
-      if isinstance(bijector, bijectors.ConditionalBijector):
+      if isinstance(bijector, modularbayes.ConditionalBijector):
         y = bijector.inverse(y, context)
       else:
         y = bijector.inverse(y)
@@ -34,13 +34,13 @@ class ConditionalChain(bijectors.ConditionalBijector, distrax.Chain):
     """Computes y = f(x) and log|det J(f)(x)|."""
 
     bijector = self._bijectors[-1]
-    if isinstance(bijector, bijectors.ConditionalBijector):
+    if isinstance(bijector, modularbayes.ConditionalBijector):
       x, log_det = bijector.forward_and_log_det(x, context)
     else:
       x, log_det = bijector.forward_and_log_det(x)
 
     for bijector in reversed(self._bijectors[:-1]):
-      if isinstance(bijector, bijectors.ConditionalBijector):
+      if isinstance(bijector, modularbayes.ConditionalBijector):
         x, ld = bijector.forward_and_log_det(x, context)
       else:
         x, ld = bijector.forward_and_log_det(x)
@@ -55,13 +55,13 @@ class ConditionalChain(bijectors.ConditionalBijector, distrax.Chain):
     """Computes x = f^{-1}(y) and log|det J(f^{-1})(y)|."""
 
     bijector = self._bijectors[0]
-    if isinstance(bijector, bijectors.ConditionalBijector):
+    if isinstance(bijector, modularbayes.ConditionalBijector):
       y, log_det = bijector.inverse_and_log_det(y, context)
     else:
       y, log_det = bijector.inverse_and_log_det(y)
 
     for bijector in self._bijectors[1:]:
-      if isinstance(bijector, bijectors.ConditionalBijector):
+      if isinstance(bijector, modularbayes.ConditionalBijector):
         y, ld = bijector.inverse_and_log_det(y, context)
       else:
         y, ld = bijector.inverse_and_log_det(y)

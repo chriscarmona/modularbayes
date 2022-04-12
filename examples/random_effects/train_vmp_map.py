@@ -24,12 +24,13 @@ from train_flow import (get_dataset, sample_all_flows, q_distr_sigma,
                         q_distr_beta_tau, elbo_estimate, compute_elpd)
 import plot
 
-from modularbayes import metaposterior
-from modularbayes import utils
-from modularbayes.utils.training import TrainState
-from modularbayes.typing import (Any, Array, Batch, ConfigDict, Dict, List,
-                                 Mapping, Optional, PRNGKey, SummaryWriter,
-                                 Tuple, Union)
+import modularbayes
+from modularbayes import (flatten_dict, plot_to_image, normalize_images,
+                          initial_state_ckpt, update_states, save_checkpoint)
+from modularbayes._src.utils.training import TrainState
+from modularbayes._src.typing import (Any, Array, Batch, ConfigDict, Dict, List,
+                                      Mapping, Optional, PRNGKey, SummaryWriter,
+                                      Tuple, Union)
 
 # Set high precision for matrix multiplication in jax
 jax.config.update('jax_default_matmul_precision', 'float32')
@@ -59,7 +60,7 @@ def make_optimizer(
 @hk.without_apply_rng
 @hk.transform
 def vmp_map(eta, vmp_map_name, vmp_map_kwargs, params_flow_init):
-  return getattr(metaposterior, vmp_map_name)(
+  return getattr(modularbayes, vmp_map_name)(
       **vmp_map_kwargs, params_flow_init=params_flow_init)(
           eta)
 
@@ -422,7 +423,7 @@ def log_images(
       if workdir_png:
         fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
       if summary_writer:
-        images.append(utils.plot_to_image(fig))
+        images.append(plot_to_image(fig))
 
       # Vary eta_0 and eta_2
       plot_name = 'rnd_eff_vmp_map_eta_0_2_' + state_name_i
@@ -444,14 +445,14 @@ def log_images(
       if workdir_png:
         fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
       if summary_writer:
-        images.append(utils.plot_to_image(fig))
+        images.append(plot_to_image(fig))
 
     # Logging VMP-map plots
     if summary_writer:
       plot_name = 'rnd_eff_vmp_map'
       summary_writer.image(
           tag=plot_name,
-          image=utils.misc.normalize_images(images),
+          image=normalize_images(images),
           step=state_list[0].step,
       )
 
@@ -481,7 +482,7 @@ def log_images(
     if workdir_png:
       fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
     if summary_writer:
-      images.append(utils.plot_to_image(fig))
+      images.append(plot_to_image(fig))
 
     # Vary eta_0 and eta_2
     plot_name = 'elpd_surface_eta_0_2'
@@ -503,7 +504,7 @@ def log_images(
     if workdir_png:
       fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
     if summary_writer:
-      images.append(utils.plot_to_image(fig))
+      images.append(plot_to_image(fig))
 
     # Vary eta misspecified and eta well-specified
     show_elpd_good_bad = False
@@ -536,13 +537,13 @@ def log_images(
       if workdir_png:
         fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
       if summary_writer:
-        images.append(utils.plot_to_image(fig))
+        images.append(plot_to_image(fig))
 
     if summary_writer:
       plot_name = 'rnd_eff_elpd_surface'
       summary_writer.image(
           tag=plot_name,
-          image=utils.misc.normalize_images(images),
+          image=normalize_images(images),
           step=state_list[0].step,
       )
 
@@ -642,7 +643,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   checkpoint_dir = str(pathlib.Path(workdir) / 'checkpoints')
 
   state_list = [
-      utils.initial_state_ckpt(
+      initial_state_ckpt(
           checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
           forward_fn=vmp_map,
           forward_fn_kwargs={
@@ -661,7 +662,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   #     logdir=workdir, just_logging=jax.host_id() != 0)
   if jax.process_index() == 0 and state_list[0].step < config.training_steps:
     summary_writer = tensorboard.SummaryWriter(workdir)
-    summary_writer.hparams(utils.flatten_dict(config))
+    summary_writer.hparams(flatten_dict(config))
   else:
     summary_writer = None
 
@@ -694,7 +695,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   ### Training VMP map ###
 
-  update_states_jit = lambda state_list, batch, prng_key: utils.update_states(
+  update_states_jit = lambda state_list, batch, prng_key: update_states(
       state_list=state_list,
       batch=batch,
       prng_key=prng_key,
@@ -753,11 +754,12 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   elbo_validation_jit = jax.jit(elbo_validation_jit)
 
+  save_after_training = False
   if state_list[0].step < config.training_steps:
+    save_after_training = True
     logging.info('Training Variational Meta-Posterior (VMP-map)...')
-
-  # Reset random key sequence
-  prng_seq = hk.PRNGSequence(config.seed)
+    # Reset random key sequence
+    prng_seq = hk.PRNGSequence(config.seed)
 
   while state_list[0].step < config.training_steps:
 
@@ -865,7 +867,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     # Save checkpoints
     if (state_list[0].step) % config.checkpoint_steps == 0:
       for state_i, state_name_i in zip(state_list, state_name_list):
-        utils.save_checkpoint(
+        save_checkpoint(
             state=state_i,
             checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
             keep=config.checkpoints_keep,
@@ -878,12 +880,13 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   # Save checkpoints at the end of the training process
   # (in case training_steps is not multiple of checkpoint_steps)
-  for state_i, state_name_i in zip(state_list, state_name_list):
-    utils.save_checkpoint(
-        state=state_i,
-        checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
-        keep=config.checkpoints_keep,
-    )
+  if save_after_training:
+    for state_i, state_name_i in zip(state_list, state_name_list):
+      save_checkpoint(
+          state=state_i,
+          checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
+          keep=config.checkpoints_keep,
+      )
 
   # Last plot of posteriors
   log_images(

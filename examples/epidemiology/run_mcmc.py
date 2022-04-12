@@ -21,7 +21,7 @@ import log_prob_fun
 import plot
 
 import modularbayes
-from modularbayes import utils
+from modularbayes import flatten_dict
 
 tfd = tfp.distributions
 tfb = tfp.bijectors
@@ -100,7 +100,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
 
   if jax.process_index() == 0:
     summary_writer = tensorboard.SummaryWriter(workdir)
-    summary_writer.hparams(utils.flatten_dict(config))
+    summary_writer.hparams(flatten_dict(config))
 
   smi_eta = config.smi_eta
 

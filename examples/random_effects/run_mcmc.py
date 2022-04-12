@@ -2,9 +2,6 @@
 
 from absl import logging
 
-from typing import Any, Dict, Mapping, Optional
-from collections import OrderedDict
-
 import ml_collections
 
 import numpy as np
@@ -23,7 +20,9 @@ import matplotlib
 import flows
 import log_prob_fun
 import plot
-from modularbayes import utils
+
+from modularbayes import flatten_dict
+from modularbayes._src.typing import Any, Dict, Mapping, Optional, OrderedDict
 
 tfd = tfp.distributions
 tfb = tfp.bijectors
@@ -117,7 +116,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
 
   if jax.process_index() == 0:
     summary_writer = tensorboard.SummaryWriter(workdir)
-    summary_writer.hparams(utils.flatten_dict(config))
+    summary_writer.hparams(flatten_dict(config))
 
   smi_eta = config.smi_eta
   if smi_eta is not None:
