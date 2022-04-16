@@ -17,10 +17,10 @@ from flax.metrics import tensorboard
 
 import haiku as hk
 
+import data
 import log_prob_fun
 import plot
 
-import modularbayes
 from modularbayes import flatten_dict
 
 tfd = tfp.distributions
@@ -38,11 +38,13 @@ SmiEta = Mapping[str, np.ndarray]
 
 def load_dataset() -> Dict[str, Array]:
   """Load Epidemiology data from Plummer."""
-  data = dict(
+  dataset_dict = dict(
       zip(['Z', 'N', 'Y', 'T'],
-          np.split(modularbayes.data.epidemiology.to_numpy(), 4, axis=-1)))
-  data = {key: jnp.array(value.squeeze()) for key, value in data.items()}
-  return data
+          np.split(data.epidemiology.to_numpy(), 4, axis=-1)))
+  dataset_dict = {
+      key: jnp.array(value.squeeze()) for key, value in dataset_dict.items()
+  }
+  return dataset_dict
 
 
 @jax.jit
@@ -154,19 +156,18 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
   posterior_sample_dict['phi'], posterior_sample_dict['theta'] = jnp.split(
       posterior_sample, [phi_dim], axis=-1)
 
-  logging.info(
-      f"posterior means phi {posterior_sample_dict['phi'].mean(axis=0)}")
+  logging.info("posterior means phi %s",
+               str(posterior_sample_dict['phi'].mean(axis=0)))
 
   times_data['end_mcmc_stg_1'] = time.perf_counter()
 
   ### Sample Second Stage ###
-  if (smi_eta['modules'][0][1] != 1. if smi_eta else False):
+  if smi_eta is not None:
     posterior_sample_dict['theta_aux'] = posterior_sample_dict['theta']
     del posterior_sample_dict['theta']
 
-    logging.info(
-        f"posterior means theta_aux {posterior_sample_dict['theta_aux'].mean(axis=0)}"
-    )
+    logging.info("posterior means theta_aux %s",
+                 str(posterior_sample_dict['theta_aux'].mean(axis=0)))
 
     logging.info("\t sampling stage 2...")
 
@@ -236,22 +237,23 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
 
     posterior_sample_dict['theta'] = theta_vmap.squeeze(1)
 
-  logging.info(
-      f"posterior means theta {posterior_sample_dict['theta'].mean(axis=0)}")
+  logging.info("posterior means theta %s",
+               str(posterior_sample_dict['theta'].mean(axis=0)))
 
   times_data['end_mcmc_stg_2'] = time.perf_counter()
 
   times_data['end_sampling'] = time.perf_counter()
 
   logging.info("Sampling times:")
+  logging.info("\t Total: %s",
+               str(times_data['end_sampling'] - times_data['start_sampling']))
   logging.info(
-      f"\t Total: {times_data['end_sampling']-times_data['start_sampling']}")
-  logging.info(
-      f"\t Stg 1: {times_data['end_mcmc_stg_1']-times_data['start_mcmc_stg_1']}"
-  )
-  logging.info(
-      f"\t Stg 2: {times_data['end_mcmc_stg_2']-times_data['start_mcmc_stg_2']}"
-  )
+      "\t Stg 1: %s",
+      str(times_data['end_mcmc_stg_1'] - times_data['start_mcmc_stg_1']))
+  if smi_eta is not None:
+    logging.info(
+        "\t Stg 2: %s",
+        str(times_data['end_mcmc_stg_2'] - times_data['start_mcmc_stg_2']))
 
   logging.info("Plotting results...")
   ### Plot SMI samples ###

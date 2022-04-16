@@ -1,5 +1,6 @@
 """MCMC sampling for the Epidemiology model."""
 
+import time
 from absl import logging
 
 import ml_collections
@@ -17,7 +18,6 @@ import haiku as hk
 
 import matplotlib
 
-import flows
 import log_prob_fun
 import plot
 
@@ -131,6 +131,9 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
 
   logging.info("\t sampling stage 1...")
 
+  times_data = {}
+  times_data['start_sampling'] = time.perf_counter()
+
   target_log_prob_fn = lambda state: log_prob_fn(
       batch=train_ds,
       model_params=state,
@@ -164,6 +167,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
   kernel = tfp.mcmc.TransformedTransitionKernel(
       inner_kernel=inner_kernel, bijector=kernel_bijector)
 
+  times_data['start_mcmc_stg_1'] = time.perf_counter()
   posterior_sample = tfm.sample_chain(
       num_results=config.num_samples,
       num_burnin_steps=config.num_burnin_steps,
@@ -173,14 +177,18 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       seed=next(prng_seq),
   )
 
-  posterior_sample_dict = flows.split_flow(
-      samples=posterior_sample,
-      num_groups=config.num_groups,
-      is_smi=False,  # little hack since split_flow is designed for VI methods
-  )
+  posterior_sample_dict = {}
+  (posterior_sample_dict['sigma'], posterior_sample_dict['beta'],
+   posterior_sample_dict['tau']) = jnp.split(
+       posterior_sample, [config.num_groups, 2 * config.num_groups], axis=-1)
+
+  logging.info("posterior means sigma %s",
+               str(posterior_sample_dict['sigma'].mean(axis=0)))
+
+  times_data['end_mcmc_stg_1'] = time.perf_counter()
 
   ### Sample Second Stage ###
-  if (jnp.any(smi_eta['groups'] != 1.) if smi_eta else False):
+  if smi_eta is not None:
     posterior_sample_dict['beta_aux'] = posterior_sample_dict['beta']
     del posterior_sample_dict['beta']
     posterior_sample_dict['tau_aux'] = posterior_sample_dict['tau']
@@ -269,8 +277,27 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       return beta, tau
 
     # Sample beta and tau
+    times_data['start_mcmc_stg_2'] = time.perf_counter()
     posterior_sample_dict['beta'], posterior_sample_dict[
         'tau'] = _sample_stage2_loop(num_devices=int(config.num_samples / 20))
+
+  logging.info("posterior means theta %s",
+               str(posterior_sample_dict['theta'].mean(axis=0)))
+
+  times_data['end_mcmc_stg_2'] = time.perf_counter()
+
+  times_data['end_sampling'] = time.perf_counter()
+
+  logging.info("Sampling times:")
+  logging.info("\t Total: %s",
+               str(times_data['end_sampling'] - times_data['start_sampling']))
+  logging.info(
+      "\t Stg 1: %s",
+      str(times_data['end_mcmc_stg_1'] - times_data['start_mcmc_stg_1']))
+  if smi_eta is not None:
+    logging.info(
+        "\t Stg 2: %s",
+        str(times_data['end_mcmc_stg_2'] - times_data['start_mcmc_stg_2']))
 
   ### Plot SMI samples ###
   plot.posterior_samples(
