@@ -281,8 +281,8 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     posterior_sample_dict['beta'], posterior_sample_dict[
         'tau'] = _sample_stage2_loop(num_devices=int(config.num_samples / 20))
 
-  logging.info("posterior means theta %s",
-               str(posterior_sample_dict['theta'].mean(axis=0)))
+  logging.info("posterior means beta %s",
+               str(posterior_sample_dict['beta'].mean(axis=0)))
 
   times_data['end_mcmc_stg_2'] = time.perf_counter()
 

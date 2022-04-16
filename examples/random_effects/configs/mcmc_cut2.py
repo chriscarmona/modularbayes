@@ -22,7 +22,7 @@ def get_config():
   config.mcmc_step_size = 0.01
 
   config.smi_eta = {
-      'groups': [0., 0.] + [1. for _ in range(config.num_groups - 2)],
+      'groups': [0.001, 0.001] + [1. for _ in range(config.num_groups - 2)],
   }
   config.plot_suffix = 'cut2'
 
