@@ -57,14 +57,14 @@ def q_distr_sigma(
   # Define normalizing flows
   q_distr = getattr(flows, flow_name + '_sigma')(**flow_kwargs)
 
-  sample_shape = (eta.shape[0],)
+  num_samples = eta.shape[0]
 
   # Sample from flow
   (sigma_sample, sigma_log_prob_posterior,
    sigma_base_sample) = q_distr.sample_and_log_prob_with_base(
        seed=hk.next_rng_key(),
+       sample_shape=(num_samples,),
        context=[eta, None],
-       sample_shape=sample_shape,
    )
 
   # Split flow into model parameters
@@ -95,7 +95,7 @@ def q_distr_beta_tau(
 
   q_distr_out = {}
 
-  num_samples_flow = sigma_base_sample.shape[0]
+  num_samples = sigma_base_sample.shape[0]
 
   # Define normalizing flows
   q_distr = getattr(flows, flow_name + '_beta_tau')(**flow_kwargs)
@@ -103,7 +103,7 @@ def q_distr_beta_tau(
   # Sample from flow
   (beta_tau_sample, beta_tau_log_prob_posterior) = q_distr.sample_and_log_prob(
       seed=hk.next_rng_key(),
-      sample_shape=(num_samples_flow,),
+      sample_shape=(num_samples,),
       context=[eta, sigma_base_sample],
   )
 
@@ -597,12 +597,11 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   checkpoint_dir = str(pathlib.Path(workdir) / 'checkpoints')
   state_list = []
-  state_name_list = []
+  state_name_list = ['sigma', 'beta_tau', 'beta_tau_aux']
 
-  state_name_list.append('sigma')
   state_list.append(
       initial_state_ckpt(
-          checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
+          checkpoint_dir=f'{checkpoint_dir}/{state_name_list[0]}',
           forward_fn=hk.transform(q_distr_sigma),
           forward_fn_kwargs={
               'flow_name': config.flow_name,
@@ -624,10 +623,9 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       eta=jnp.ones((config.num_samples_elbo, config.num_groups)),
   )['sigma_base_sample']
 
-  state_name_list.append('beta_tau')
   state_list.append(
       initial_state_ckpt(
-          checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
+          checkpoint_dir=f'{checkpoint_dir}/{state_name_list[1]}',
           forward_fn=hk.transform(q_distr_beta_tau),
           forward_fn_kwargs={
               'flow_name': config.flow_name,
@@ -639,22 +637,20 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           prng_key=next(prng_seq),
           optimizer=make_optimizer(**config.optim_kwargs),
       ))
-  if config.flow_kwargs.is_smi:
-    state_name_list.append('beta_tau_aux')
-    state_list.append(
-        initial_state_ckpt(
-            checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
-            forward_fn=hk.transform(q_distr_beta_tau),
-            forward_fn_kwargs={
-                'flow_name': config.flow_name,
-                'flow_kwargs': config.flow_kwargs,
-                'sigma_base_sample': sigma_base_sample_init,
-                'eta': jnp.ones((config.num_samples_elbo, config.num_groups)),
-                'is_aux': True,
-            },
-            prng_key=next(prng_seq),
-            optimizer=make_optimizer(**config.optim_kwargs),
-        ))
+  state_list.append(
+      initial_state_ckpt(
+          checkpoint_dir=f'{checkpoint_dir}/{state_name_list[2]}',
+          forward_fn=hk.transform(q_distr_beta_tau),
+          forward_fn_kwargs={
+              'flow_name': config.flow_name,
+              'flow_kwargs': config.flow_kwargs,
+              'sigma_base_sample': sigma_base_sample_init,
+              'eta': jnp.ones((config.num_samples_elbo, config.num_groups)),
+              'is_aux': True,
+          },
+          prng_key=next(prng_seq),
+          optimizer=make_optimizer(**config.optim_kwargs),
+      ))
 
   # Print a useful summary of the execution of the flow architecture.
   logging.info('FLOW SIGMA:')

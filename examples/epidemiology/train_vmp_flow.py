@@ -17,7 +17,6 @@ import optax
 import flows
 import log_prob_fun
 import plot
-
 from train_flow import load_dataset, make_optimizer
 
 from modularbayes._src.utils.training import TrainState
@@ -45,14 +44,14 @@ def q_distr_phi(
   # Define normalizing flows
   q_distr = getattr(flows, flow_name + '_phi')(**flow_kwargs)
 
-  sample_shape = (eta.shape[0],)
+  num_samples = eta.shape[0]
 
   # Sample from flows
   (phi_sample, phi_log_prob_posterior,
    phi_base_sample) = q_distr.sample_and_log_prob_with_base(
        seed=hk.next_rng_key(),
+       sample_shape=(num_samples,),
        context=[eta, None],
-       sample_shape=sample_shape,
    )
 
   # Split flow into model parameters
@@ -83,7 +82,7 @@ def q_distr_theta(
 
   q_distr_out = {}
 
-  num_samples_flow = phi_base_sample.shape[0]
+  num_samples = phi_base_sample.shape[0]
 
   # Define normalizing flows
   q_distr = getattr(flows, flow_name + '_theta')(**flow_kwargs)
@@ -91,7 +90,7 @@ def q_distr_theta(
   # Sample from flow
   (theta_sample, theta_log_prob_posterior) = q_distr.sample_and_log_prob(
       seed=hk.next_rng_key(),
-      sample_shape=(num_samples_flow,),
+      sample_shape=(num_samples,),
       context=[eta, phi_base_sample],
   )
 
@@ -193,7 +192,7 @@ def elbo_estimate_along_eta(
   # Sample from flow
   q_distr_out = sample_all_flows(
       params_tuple=params_tuple,
-      prng_key=prng_key,
+      prng_key=next(prng_seq),
       flow_name=flow_name,
       flow_kwargs=flow_kwargs,
       smi_eta=smi_eta_elbo,

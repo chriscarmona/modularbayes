@@ -105,7 +105,7 @@ def q_distr_theta(
 
   q_distr_out = {}
 
-  num_samples_flow = phi_base_sample.shape[0]
+  num_samples = phi_base_sample.shape[0]
 
   # Define normalizing flows
   q_distr = getattr(flows, flow_name + '_theta')(**flow_kwargs)
@@ -113,7 +113,7 @@ def q_distr_theta(
   # Sample from flows
   (theta_sample, theta_log_prob_posterior) = q_distr.sample_and_log_prob(
       seed=hk.next_rng_key(),
-      sample_shape=(num_samples_flow,),
+      sample_shape=(num_samples,),
       context=phi_base_sample,
   )
 

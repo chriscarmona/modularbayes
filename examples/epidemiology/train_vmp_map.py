@@ -18,9 +18,9 @@ import optax
 
 from tensorflow_probability.substrates import jax as tfp
 
-from train_flow import load_dataset, sample_all_flows, q_distr_phi, q_distr_theta, elbo_estimate
-
 import plot
+from train_flow import (load_dataset, sample_all_flows, q_distr_phi,
+                        q_distr_theta, elbo_estimate)
 
 import modularbayes
 from modularbayes._src.utils.training import TrainState
