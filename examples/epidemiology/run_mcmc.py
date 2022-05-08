@@ -1,5 +1,4 @@
 """MCMC sampling for the Epidemiology model."""
-from typing import Any, Dict, Mapping, Optional
 
 import time
 from absl import logging
@@ -17,11 +16,12 @@ from flax.metrics import tensorboard
 
 import haiku as hk
 
-import data
 import log_prob_fun
 import plot
+from train_flow import load_dataset
 
 from modularbayes import flatten_dict
+from modularbayes._src.typing import Any, Dict, Mapping, Optional
 
 tfd = tfp.distributions
 tfb = tfp.bijectors
@@ -36,15 +36,14 @@ ConfigDict = ml_collections.ConfigDict
 SmiEta = Mapping[str, np.ndarray]
 
 
-def load_dataset() -> Dict[str, Array]:
-  """Load Epidemiology data from Plummer."""
-  dataset_dict = dict(
-      zip(['Z', 'N', 'Y', 'T'],
-          np.split(data.epidemiology.to_numpy(), 4, axis=-1)))
-  dataset_dict = {
-      key: jnp.array(value.squeeze()) for key, value in dataset_dict.items()
-  }
-  return dataset_dict
+def get_posterior_sample_init(phi_dim: int, theta_dim: int):
+
+  posterior_sample = {}
+  posterior_sample['phi'] = 0.2 * jnp.ones((1, phi_dim))
+  posterior_sample['theta'] = jnp.ones((1, theta_dim))
+  posterior_sample['theta'] = jnp.array([[-1.5, 20]])
+
+  return posterior_sample
 
 
 @jax.jit
@@ -68,12 +67,6 @@ def log_prob_fn(
   posterior_sample_dict = jax.tree_util.tree_unflatten(
       treedef=treedef, leaves=leaves)
 
-  # # Bijector
-  # posterior_sample_dict['phi'] = jax.nn.sigmoid(posterior_sample_dict['phi'])
-  # theta1, theta2_ = jnp.split(posterior_sample_dict['theta'], 2, axis=-1)
-  # theta2 = jax.nn.softplus(theta2_)
-  # posterior_sample_dict['theta'] = jnp.concatenate([theta1, theta2], axis=-1)
-
   smi_eta = {
       'modules': smi_eta_modules
   } if smi_eta_modules is not None else None
@@ -88,14 +81,13 @@ def log_prob_fn(
 
 
 def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
-  """Sample from the posterior in the Epidemiology model."""
-
-  # Full dataset used everytime
-  # Small data, no need to batch
-  train_ds = load_dataset()
+  """Sample and evaluate the epidemiology model."""
 
   # Initialize random keys
   prng_seq = hk.PRNGSequence(config.seed)
+
+  # Small data, no need to batch
+  train_ds = load_dataset()
 
   phi_dim = train_ds['Z'].shape[0]
   theta_dim = 2
@@ -106,9 +98,12 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
 
   smi_eta = config.smi_eta
 
-  posterior_sample_dict_init = {}
-  posterior_sample_dict_init['phi'] = 0.2 * jnp.ones((1, phi_dim))
-  # posterior_sample_dict_init['theta'] = jnp.ones((1, 2))
+  # Initilize the model parameters
+  posterior_sample_dict_init = get_posterior_sample_init(
+      phi_dim=phi_dim,
+      theta_dim=theta_dim,
+  )
+  # better init for theta
   posterior_sample_dict_init['theta'] = jnp.array([[-1.5, 20]])
 
   ### Sample First Stage ###
@@ -126,7 +121,11 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       model_params_init=posterior_sample_dict_init,
   )
 
-  posterior_sample_init = 0.5 * jnp.ones((phi_dim + theta_dim,))
+  posterior_sample_init = jnp.concatenate([
+      posterior_sample_dict_init['phi'],
+      posterior_sample_dict_init['theta'],
+  ],
+                                          axis=-1)[0, :]
   target_log_prob_fn(posterior_sample_init)
 
   inner_kernel = tfm.NoUTurnSampler(
@@ -134,6 +133,10 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       step_size=config.mcmc_step_size,
   )
 
+  # Define bijectors for mapping values to parameter domain
+  # phi goes to (0,1)
+  # theta1 goes to [-Inf,Inf]
+  # theta2 goes to [0,Inf]
   block_bijectors = [tfb.Sigmoid(), tfb.Identity(), tfb.Softplus()]
   block_sizes = [phi_dim, 1, 1]
   kernel_bijector = tfb.Blockwise(
@@ -171,7 +174,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
 
     logging.info("\t sampling stage 2...")
 
-    def sample_theta(
+    def sample_stg2(
         phi: Array,
         theta_init: Array,
         num_burnin_steps: int,
@@ -213,15 +216,17 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
 
       return posterior_sample
 
-    # Example of one sample of theta
-    # sample_theta(
+    # Get one sample of parameters in stage 2
+    # sample_stg2(
     #     phi=posterior_sample_dict['phi'][0, :],
     #     theta_init=posterior_sample_dict['theta_aux'][0, :],
     #     num_burnin_steps=100,
     #     prng_key=next(prng_seq),
     # )
 
-    sample_theta_vmap = jax.vmap(lambda phi, theta_init, prng_key: sample_theta(
+    # Define function to parallelize sample_stage2
+    # TODO: use pmap
+    sample_stg2_vmap = jax.vmap(lambda phi, theta_init, prng_key: sample_stg2(
         phi=phi,
         theta_init=theta_init,
         num_burnin_steps=config.num_samples_subchain - 1,
@@ -229,7 +234,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     ))
 
     times_data['start_mcmc_stg_2'] = time.perf_counter()
-    theta_vmap = sample_theta_vmap(
+    theta_vmap = sample_stg2_vmap(
         posterior_sample_dict['phi'],
         posterior_sample_dict['theta_aux'],
         jax.random.split(next(prng_seq), config.num_samples),

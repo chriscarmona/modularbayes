@@ -1,4 +1,4 @@
-"""MCMC sampling for the Epidemiology model."""
+"""MCMC sampling for the Random effects model."""
 
 import time
 from absl import logging
@@ -16,10 +16,9 @@ from flax.metrics import tensorboard
 
 import haiku as hk
 
-import matplotlib
-
 import log_prob_fun
 import plot
+from train_flow import get_dataset
 
 from modularbayes import flatten_dict
 from modularbayes._src.typing import Any, Dict, Mapping, Optional, OrderedDict
@@ -30,8 +29,6 @@ tfm = tfp.mcmc
 
 np.set_printoptions(suppress=True, precision=4)
 
-matplotlib.use('agg')
-
 Array = jnp.ndarray
 PRNGKey = Array
 Batch = Mapping[str, np.ndarray]
@@ -39,34 +36,14 @@ ConfigDict = ml_collections.ConfigDict
 SmiEta = Mapping[str, np.ndarray]
 
 
-def get_dataset(
-    num_obs_groups: Array,
-    loc_groups: Array,
-    scale_groups: Array,
-    prng_key: PRNGKey,
-) -> Dict[str, Array]:
-  """Generate random effects data as in Liu 2009."""
+def get_posterior_sample_init(num_groups: int):
 
-  num_groups = len(num_obs_groups)
-  assert len(loc_groups) == num_groups
-  assert len(scale_groups) == num_groups
+  posterior_sample = OrderedDict()
+  posterior_sample['sigma'] = 1. * jnp.ones((1, num_groups))
+  posterior_sample['beta'] = 0. * jnp.ones((1, num_groups))
+  posterior_sample['tau'] = 1. * jnp.ones((1, 1))
 
-  num_obs_groups = jnp.array(num_obs_groups).astype(int)
-  loc_groups = jnp.array(loc_groups)
-  scale_groups = jnp.array(scale_groups)
-
-  loc_pointwise = jnp.repeat(loc_groups, num_obs_groups)
-  scale_pointwise = jnp.repeat(scale_groups, num_obs_groups)
-
-  z = jax.random.normal(key=prng_key, shape=loc_pointwise.shape)
-
-  data = {
-      'Y': loc_pointwise + z * scale_pointwise,
-      'group': jnp.repeat(jnp.arange(num_groups), num_obs_groups),
-      'num_obs_groups': num_obs_groups,
-  }
-
-  return data
+  return posterior_sample
 
 
 @jax.jit
@@ -76,6 +53,7 @@ def log_prob_fn(
     smi_eta_groups: Optional[Array],
     model_params_init: Mapping[str, Any],
 ):
+  """Log probability function for the random effects model."""
 
   leaves_init, treedef = jax.tree_util.tree_flatten(model_params_init)
 
@@ -101,11 +79,11 @@ def log_prob_fn(
 
 
 def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
+  """Sample and evaluate the random effects model."""
 
   # Initialize random keys
   prng_seq = hk.PRNGSequence(config.seed)
 
-  # Full dataset used everytime
   # Small data, no need to batch
   train_ds = get_dataset(
       num_obs_groups=config.num_obs_groups,
@@ -122,10 +100,9 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
   if smi_eta is not None:
     smi_eta = {k: jnp.array(v) for k, v in smi_eta.items()}
 
-  posterior_sample_dict_init = OrderedDict()
-  posterior_sample_dict_init['sigma'] = 1. * jnp.ones((1, config.num_groups))
-  posterior_sample_dict_init['beta'] = 0. * jnp.ones((1, config.num_groups))
-  posterior_sample_dict_init['tau'] = 1. * jnp.ones((1, 1))
+  # Initilize the model parameters
+  posterior_sample_dict_init = get_posterior_sample_init(
+      num_groups=config.num_groups)
 
   ### Sample First Stage ###
 
@@ -154,7 +131,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       step_size=config.mcmc_step_size,
   )
 
-  # Bijector for mapping values to parameter domain
+  # Define bijectors for mapping values to parameter domain
   # tau goes to [0,Inf]
   # beta goes to [-Inf,Inf]
   # sigma goes to [0,Inf]
@@ -194,9 +171,12 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     posterior_sample_dict['tau_aux'] = posterior_sample_dict['tau']
     del posterior_sample_dict['tau']
 
+    logging.info("posterior means beta_aux %s",
+                 str(posterior_sample_dict['beta_aux'].mean(axis=0)))
+
     logging.info("\t sampling stage 2...")
 
-    def sample_stage2(
+    def sample_stg2(
         sigma: Array,
         beta_init: Array,
         tau_init: Array,
@@ -239,10 +219,18 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
 
       return posterior_sample
 
+    # Get one sample of parameters in stage 2
+    # sample_stg2(
+    #     phi=posterior_sample_dict['phi'][0, :],
+    #     theta_init=posterior_sample_dict['theta_aux'][0, :],
+    #     num_burnin_steps=100,
+    #     prng_key=next(prng_seq),
+    # )
+
     # Define function to parallelize sample_stage2
     # TODO: use pmap
-    sample_stage2_vmap = jax.vmap(
-        lambda sigma, beta_init, tau_init, prng_key: sample_stage2(
+    sample_stg2_vmap = jax.vmap(
+        lambda sigma, beta_init, tau_init, prng_key: sample_stg2(
             sigma=sigma,
             beta_init=beta_init,
             tau_init=tau_init,
@@ -250,21 +238,27 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
             prng_key=prng_key,
         ))
 
-    def _sample_stage2_loop(num_devices):
+    def _sample_stage2_loop(num_chunks):
+      """Sequential sampling of stage 2.
+
+      Improve performance of HMC by spplitting the total number of samples into
+      num_chunks steps, using initialize the chains in values obtained from the
+      previous step.
+      """
+
+      assert (config.num_samples % num_chunks) == 0
+
       # Initialize beta and tau
-      beta = [posterior_sample_dict['beta_aux'][:num_devices, :]]
-      tau = [posterior_sample_dict['tau_aux'][:num_devices, :]]
+      beta = [posterior_sample_dict['beta_aux'][:num_chunks, :]]
+      tau = [posterior_sample_dict['tau_aux'][:num_chunks, :]]
 
-      # Get sequential samples of beta and tau
-      assert (config.num_samples % num_devices) == 0
-
-      for i in range(int(config.num_samples / num_devices)):
-        beta_tau_i = sample_stage2_vmap(
-            posterior_sample_dict['sigma'][(i * num_devices):((i + 1) *
-                                                              num_devices), :],
+      for i in range(int(config.num_samples / num_chunks)):
+        beta_tau_i = sample_stg2_vmap(
+            posterior_sample_dict['sigma'][(i * num_chunks):((i + 1) *
+                                                             num_chunks), :],
             beta[-1],
             tau[-1],
-            jax.random.split(next(prng_seq), num_devices),
+            jax.random.split(next(prng_seq), num_chunks),
         )
         beta_i, tau_i = jnp.split(
             beta_tau_i.squeeze(1), [config.num_groups], axis=-1)
@@ -279,7 +273,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     # Sample beta and tau
     times_data['start_mcmc_stg_2'] = time.perf_counter()
     posterior_sample_dict['beta'], posterior_sample_dict[
-        'tau'] = _sample_stage2_loop(num_devices=int(config.num_samples / 20))
+        'tau'] = _sample_stage2_loop(num_chunks=config.num_samples // 20)
 
   logging.info("posterior means beta %s",
                str(posterior_sample_dict['beta'].mean(axis=0)))
@@ -299,6 +293,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
         "\t Stg 2: %s",
         str(times_data['end_mcmc_stg_2'] - times_data['start_mcmc_stg_2']))
 
+  logging.info("Plotting results...")
   ### Plot SMI samples ###
   plot.posterior_samples(
       posterior_sample_dict=posterior_sample_dict,
