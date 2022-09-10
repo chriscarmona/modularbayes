@@ -8,7 +8,7 @@ WORK_DIR=$HOME/smi/output
 
 # Create output directory and install missing dependencies
 mkdir -p $WORK_DIR
-pip install -r $SMI_DIR/requirements/requirements-examples.txt
+pip install -r $SMI_DIR/examples/requirements.txt
 
 # Epidemiological data
 ## One posterior for each eta

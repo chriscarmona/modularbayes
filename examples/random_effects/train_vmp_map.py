@@ -10,7 +10,6 @@ import numpy as np
 import matplotlib
 from matplotlib import pyplot as plt
 
-# from clu import metric_writers
 from flax.metrics import tensorboard
 
 import jax

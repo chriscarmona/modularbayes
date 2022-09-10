@@ -4,4 +4,3 @@ jupyterlab
 matplotlib
 plotly
 seaborn
-tensorboard

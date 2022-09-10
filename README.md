@@ -19,14 +19,10 @@ The article contains two substantial new methods. First, we give variational met
 
 We include code to replicate all the examples from our article. By executing the `run.sh` bash script one can train all variational posteriors and produce visualizations and summaries (follow [*Installation instructions*](#create-a-virtual-environment) before running the script).
 
+Plase examine the script before execution. You can customize the output directories and choose the experiments that you wish to run.
 ```bash
-# Assume we are located at the SMI directory
-SMI_DIR=$PWD
-
-# Directory to save all outputs
-WORK_DIR=$HOME/smi/output
-
-./examples/run.sh
+chmod +x examples/run.sh
+sh examples/run.sh
 ```
 
 We recommend to monitor training via tensorboard
@@ -86,17 +82,11 @@ If you find this work relevant for your scientific publication, we encourage you
 
 For OSX or Linux, you can use `venv` (see the [venv documentation](https://docs.python.org/3/library/venv.html)).
 
-Create `modularbayes` virtual environment
 ```bash
 python3 -m venv ~/.virtualenvs/modularbayes
-```
-Activate the virtual environment
-```bash
 source ~/.virtualenvs/modularbayes/bin/activate
-```
-Upgrade pip
-```bash
 pip install -U pip
+pip install -U setuptools wheel
 ```
 
 Feel free to change the folder where the virtual environment is created by replacing `~/.virtualenvs/modularbayes` with a path of your choice in both commands.

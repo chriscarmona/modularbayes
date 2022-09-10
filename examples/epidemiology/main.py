@@ -1,10 +1,10 @@
 """Main script for running the epidemiology model."""
 
+import warnings
+
 from absl import app
 from absl import flags
 from absl import logging
-
-from clu import platform
 
 import jax
 from ml_collections import config_flags
@@ -24,11 +24,17 @@ config_flags.DEFINE_config_file(
     'File path to the training hyperparameter configuration.',
     lock_config=False)
 
+# TODO: Remove when Haiku stop producing "jax.tree_leaves is deprecated" warning
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 def main(argv):
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
+  # log to a file
+  if FLAGS.log_dir:
+    logging.get_absl_handler().use_absl_log_file()
+    
   # Hide any GPUs form TensorFlow. Otherwise TF might reserve memory and make
   # it unavailable to JAX.
   tf.config.experimental.set_visible_devices([], 'GPU')
@@ -38,12 +44,6 @@ def main(argv):
   logging.info('JAX local devices: %r', jax.local_devices())
   logging.info('JAX device count: %r', jax.device_count())
 
-  # Add a note so that we can tell which task is which JAX host.
-  # (Depending on the platform task 0 is not guaranteed to be host 0)
-  platform.work_unit().set_task_status(f'process_index: {jax.process_index()}, '
-                                       f'process_count: {jax.process_count()}')
-  platform.work_unit().create_artifact(platform.ArtifactType.DIRECTORY,
-                                       FLAGS.workdir, 'workdir')
   if FLAGS.config.method == 'mcmc':
     if FLAGS.config.iterate_smi_eta == ():
       FLAGS.config.smi_eta = None

@@ -4,8 +4,6 @@ import pathlib
 from absl import logging
 
 import numpy as np
-
-# from clu import metric_writers
 from flax.metrics import tensorboard
 
 import jax
