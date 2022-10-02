@@ -9,7 +9,6 @@ from modularbayes._src.bijectors.conditional_masked_coupling import ConditionalM
 from modularbayes._src.bijectors.conditional_masked_coupling_extra import EtaConditionalMaskedCoupling
 
 from modularbayes._src.distributions.conditional_transformed import ConditionalTransformed
-from modularbayes._src.distributions.mvn_tril import MultivariateNormalTriL
 from modularbayes._src.distributions.transformed import Transformed
 
 from modularbayes._src.metaposterior.vmp_map import VmpMap
@@ -42,7 +41,6 @@ __all__ = (
     'ConditionalMaskedCoupling',
     'EtaConditionalMaskedCoupling',
     'ConditionalTransformed',
-    'MultivariateNormalTriL',
     'Transformed',
     'VmpMap',
     'as_lower_chol',
