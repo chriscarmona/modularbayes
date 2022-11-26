@@ -369,7 +369,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   # Small data, no need to batch
   train_ds = load_dataset()
 
-  smi_eta = config.flow_kwargs.smi_eta
+  smi_eta = {'modules': [[1.0, config.smi_eta]]}
 
   phi_dim = train_ds['Z'].shape[0]
   theta_dim = 2
@@ -623,3 +623,10 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   )
 
   return state_list
+
+
+# # For debugging
+# config = get_config()
+# config.flow_kwargs.smi_eta = {'modules': [[1.0, 1.0]]}
+# workdir = pathlib.Path.home()/'smi/output/epidemiology/mean_field/eta_1.0'
+# train_and_evaluate(config, workdir)

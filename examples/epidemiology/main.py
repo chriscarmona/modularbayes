@@ -1,5 +1,6 @@
-"""Main script for running the epidemiology model."""
+"""Main script for training the model."""
 
+import os
 import warnings
 
 from absl import app
@@ -10,10 +11,10 @@ import jax
 from ml_collections import config_flags
 import tensorflow as tf
 
+import run_mcmc
 import train_flow
 import train_vmp_flow
 import train_vmp_map
-import run_mcmc
 
 FLAGS = flags.FLAGS
 
@@ -27,14 +28,17 @@ config_flags.DEFINE_config_file(
 # TODO: Remove when Haiku stop producing "jax.tree_leaves is deprecated" warning
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
+
 def main(argv):
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
   # log to a file
   if FLAGS.log_dir:
+    if not os.path.exists(FLAGS.log_dir):
+      os.makedirs(FLAGS.log_dir)
     logging.get_absl_handler().use_absl_log_file()
-    
+
   # Hide any GPUs form TensorFlow. Otherwise TF might reserve memory and make
   # it unavailable to JAX.
   tf.config.experimental.set_visible_devices([], 'GPU')
@@ -45,24 +49,9 @@ def main(argv):
   logging.info('JAX device count: %r', jax.device_count())
 
   if FLAGS.config.method == 'mcmc':
-    if FLAGS.config.iterate_smi_eta == ():
-      FLAGS.config.smi_eta = None
-      run_mcmc.sample_and_evaluate(FLAGS.config, FLAGS.workdir)
-    else:
-      for eta in FLAGS.config.iterate_smi_eta:
-        FLAGS.config.smi_eta = {'modules': [[1.0, eta]]}
-        run_mcmc.sample_and_evaluate(FLAGS.config,
-                                     FLAGS.workdir + f"_{eta:.3f}")
+    run_mcmc.sample_and_evaluate(FLAGS.config, FLAGS.workdir)
   elif FLAGS.config.method == 'flow':
-    if FLAGS.config.iterate_smi_eta == ():
-      FLAGS.config.flow_kwargs.smi_eta = None
-      train_flow.train_and_evaluate(FLAGS.config, FLAGS.workdir)
-    else:
-      for eta in FLAGS.config.iterate_smi_eta:
-        FLAGS.config.flow_kwargs.smi_eta = {'modules': [[1.0, eta]]}
-
-        train_flow.train_and_evaluate(FLAGS.config,
-                                      FLAGS.workdir + f"_{eta:.3f}")
+    train_flow.train_and_evaluate(FLAGS.config, FLAGS.workdir)
   elif FLAGS.config.method == 'vmp_flow':
     train_vmp_flow.train_and_evaluate(FLAGS.config, FLAGS.workdir)
   elif FLAGS.config.method == 'vmp_map':

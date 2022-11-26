@@ -1,43 +1,76 @@
 #!/bin/bash
+set -e
+set -x
 
 # Assume we are located at the SMI directory
 SMI_DIR=$PWD
 
 # Directory to save all outputs
-WORK_DIR=$HOME/smi/output
+WORK_DIR=$HOME/modularbayes-output
 
 # Create output directory and install missing dependencies
 mkdir -p $WORK_DIR
 pip install -r $SMI_DIR/examples/requirements.txt
 
-# Epidemiological data
+## Epidemiological Model ###
+
 ## One posterior for each eta
-eta='(0.001,0.1,1.0)'
+all_eta=('0.001' '0.010' '0.100' '0.200' '0.500' '0.800' '1.000')
+
 ## MCMC
-python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/mcmc.py \
-                                               --workdir=$WORK_DIR/epidemiology/mcmc/eta \
-                                               --config.iterate_smi_eta=$eta
-### Mean Field Variational Inference (MFVI)
-python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_mf.py \
-                                               --workdir=$WORK_DIR/epidemiology/mean_field/eta \
-                                               --config.iterate_smi_eta=$eta
+for eta in "${all_eta[@]}"
+do
+  python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/mcmc.py \
+                                                 --workdir=$WORK_DIR/epidemiology/mcmc/eta_$eta \
+                                                 --config.smi_eta=$eta \
+                                                 --log_dir $WORK_DIR/epidemiology/mcmc/eta_$eta/log_dir \
+                                                 --alsologtostderr
+done
+
+## Mean Field Variational Inference (MFVI)
+for eta in "${all_eta[@]}"
+do
+  python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_mf.py \
+                                                 --workdir=$WORK_DIR/epidemiology/mean_field/eta_$eta \
+                                                 --config.smi_eta=$eta \
+                                                 --log_dir $WORK_DIR/epidemiology/mean_field/eta_$eta/log_dir \
+                                                 --alsologtostderr
+done
+
 ### Neural Spline Flow
-python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_nsf.py \
-                                               --workdir=$WORK_DIR/epidemiology/nsf/eta \
-                                               --config.iterate_smi_eta=$eta
+for eta in "${all_eta[@]}"
+do
+  python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_nsf.py \
+                                                 --workdir=$WORK_DIR/epidemiology/nsf/eta \
+                                                 --config.smi_eta=$eta \
+                                                 --log_dir $WORK_DIR/epidemiology/mean_field/eta_$eta/log_dir \
+                                                 --alsologtostderr
+done
+
 ## Variational Meta-Posterior via VMP-map
 ### Mean field
 python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_mf_vmp_map.py \
-                                               --workdir=$WORK_DIR/epidemiology/mean_field/vmp_map
+                                               --workdir=$WORK_DIR/epidemiology/mean_field/vmp_map \
+                                               --log_dir $WORK_DIR/epidemiology/mean_field/vmp_map/log_dir \
+                                               --alsologtostderr
+
 ### Neural Spline Flow
 python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_nsf_vmp_map.py \
-                                               --workdir=$WORK_DIR/epidemiology/nsf/vmp_map
+                                               --workdir=$WORK_DIR/epidemiology/nsf/vmp_map \
+                                               --log_dir $WORK_DIR/epidemiology/nsf/vmp_map/log_dir \
+                                               --alsologtostderr
+
 ## Variational Meta-Posterior via VMP-flow
 ### Neural Spline Flow
 python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_nsf_vmp_flow.py \
-                                               --workdir=$WORK_DIR/epidemiology/nsf/vmp_flow
+                                               --workdir=$WORK_DIR/epidemiology/nsf/vmp_flow \
+                                               --log_dir $WORK_DIR/epidemiology/nsf/vmp_flow/log_dir \
+                                               --alsologtostderr
 
-# Random Effects
+
+
+### Random Effects Model ###
+
 ## MCMC
 python3 $SMI_DIR/examples/random_effects/main.py --config=$SMI_DIR/examples/random_effects/configs/mcmc_full.py \
                                                  --workdir=$WORK_DIR/random_effects/mcmc/full

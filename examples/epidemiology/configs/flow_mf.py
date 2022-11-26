@@ -10,7 +10,7 @@ def get_config():
   config.method = 'flow'
 
   # SMI degree of influence of the poisson module
-  config.iterate_smi_eta = ()
+  config.smi_eta = 1.0
 
   # Defined in `epidemiology.models.flows`.
   config.flow_name = 'mean_field'

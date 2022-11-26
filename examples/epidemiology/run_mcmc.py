@@ -21,9 +21,8 @@ import plot
 from train_flow import load_dataset
 
 from modularbayes import flatten_dict
-from modularbayes._src.typing import Any, Dict, Mapping, Optional
+from modularbayes._src.typing import Any, Mapping, Optional
 
-tfd = tfp.distributions
 tfb = tfp.bijectors
 tfm = tfp.mcmc
 
@@ -96,7 +95,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     summary_writer = tensorboard.SummaryWriter(workdir)
     summary_writer.hparams(flatten_dict(config))
 
-  smi_eta = config.smi_eta
+  smi_eta = {'modules': [[1.0, config.smi_eta]]}
 
   # Initilize the model parameters
   posterior_sample_dict_init = get_posterior_sample_init(
