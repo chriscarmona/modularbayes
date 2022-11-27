@@ -8,6 +8,9 @@ from modularbayes._src.bijectors.conditional_chain import ConditionalChain
 from modularbayes._src.bijectors.conditional_masked_coupling import ConditionalMaskedCoupling
 from modularbayes._src.bijectors.conditional_masked_coupling_extra import EtaConditionalMaskedCoupling
 
+from modularbayes._src.conditioners.base import MeanFieldConditioner
+from modularbayes._src.conditioners.base import MLPConditioner
+
 from modularbayes._src.distributions.conditional_transformed import ConditionalTransformed
 from modularbayes._src.distributions.transformed import Transformed
 
@@ -40,6 +43,8 @@ __all__ = (
     'ConditionalChain',
     'ConditionalMaskedCoupling',
     'EtaConditionalMaskedCoupling',
+    'MeanFieldConditioner',
+    'MLPConditioner',
     'ConditionalTransformed',
     'Transformed',
     'VmpMap',

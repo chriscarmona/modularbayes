@@ -3,39 +3,13 @@
 import math
 
 from jax import numpy as jnp
-import haiku as hk
 import distrax
 from tensorflow_probability.substrates import jax as tfp
 
 import modularbayes
-from modularbayes._src.typing import Any, Array, Dict, Optional, Sequence
+from modularbayes._src.typing import Any, Array, Dict, Sequence
 
 tfb = tfp.bijectors
-tfd = tfp.distributions
-
-
-class MeanField(hk.Module):
-  """Auxiliary Module to assign loc and log_scale to a module.
-
-  These parameters could be directly defined within the mean_field() function,
-  but the module makes them discoverable by hk.experimental.tabulate"""
-
-  def __init__(
-      self,
-      flow_dim: int,
-      name: Optional[str] = None,
-  ):
-    super().__init__(name=name)
-    self.flow_dim = flow_dim
-
-  def __call__(self,):
-    event_shape = (self.flow_dim,)
-
-    loc = hk.get_parameter("loc", event_shape, init=jnp.zeros)
-    # log_scale = jnp.zeros(event_shape)
-    log_scale = hk.get_parameter("log_scale", event_shape, init=jnp.zeros)
-
-    return loc, log_scale
 
 
 def mean_field_sigma(
@@ -50,8 +24,8 @@ def mean_field_sigma(
   flow_layers = []
 
   # Layer 1: Trainable Affine transformation
-  mf_module = MeanField(flow_dim=flow_dim)
-  loc, log_scale = mf_module()
+  conditioner = modularbayes.MeanFieldConditioner(flow_dim=flow_dim)
+  loc, log_scale = conditioner()
   flow_layers.append(
       distrax.Block(distrax.ScalarAffine(shift=loc, log_scale=log_scale), 1))
   # flow_layers.append(tfb.Shift(loc)(tfb.Scale(log_scale=log_scale)))
@@ -84,8 +58,8 @@ def mean_field_beta_tau(
   flow_layers = []
 
   # Layer 1: Trainable Affine transformation
-  mf_module = MeanField(flow_dim=flow_dim)
-  loc, log_scale = mf_module()
+  conditioner = modularbayes.MeanFieldConditioner(flow_dim=flow_dim)
+  loc, log_scale = conditioner()
   flow_layers.append(
       distrax.Block(distrax.ScalarAffine(shift=loc, log_scale=log_scale), 1))
   # flow_layers.append(tfb.Shift(loc)(tfb.Scale(log_scale=log_scale)))
@@ -111,39 +85,6 @@ def mean_field_beta_tau(
   q_distr = modularbayes.ConditionalTransformed(base_distribution, flow)
 
   return q_distr
-
-
-class CouplingConditioner(hk.Module):
-
-  def __init__(
-      self,
-      output_dim: int,
-      hidden_sizes: Sequence[int],
-      num_bijector_params: int,
-      name: Optional[str] = 'nsf_conditioner',
-  ):
-    super().__init__(name=name)
-    self.output_dim = output_dim
-    self.hidden_sizes = hidden_sizes
-    self.num_bijector_params = num_bijector_params
-
-  def __call__(self, inputs):
-
-    out = hk.Flatten(preserve_dims=-1)(inputs)
-    out = hk.nets.MLP(self.hidden_sizes, activate_final=True)(out)
-
-    # We initialize this linear layer to zero so that the flow is initialized
-    # to the identity function.
-    out = hk.Linear(
-        self.output_dim * self.num_bijector_params,
-        w_init=jnp.zeros,
-        b_init=jnp.zeros)(
-            out)
-    out = hk.Reshape(
-        (self.output_dim,) + (self.num_bijector_params,), preserve_dims=-1)(
-            out)
-
-    return out
 
 
 def nsf_sigma(
@@ -191,7 +132,7 @@ def nsf_sigma(
     layer = distrax.MaskedCoupling(
         mask=mask,
         bijector=bijector_fn,
-        conditioner=CouplingConditioner(
+        conditioner=modularbayes.MLPConditioner(
             output_dim=math.prod(event_shape),
             hidden_sizes=hidden_sizes,
             num_bijector_params=num_bijector_params,
@@ -263,7 +204,7 @@ def nsf_beta_tau(
     layer = modularbayes.ConditionalMaskedCoupling(
         mask=mask,
         bijector=bijector_fn,
-        conditioner=CouplingConditioner(
+        conditioner=modularbayes.MLPConditioner(
             output_dim=math.prod(event_shape),
             hidden_sizes=hidden_sizes,
             num_bijector_params=num_bijector_params,
@@ -343,13 +284,13 @@ def meta_nsf_sigma(
     layer = modularbayes.EtaConditionalMaskedCoupling(
         mask=mask,
         bijector=bijector_fn,
-        conditioner_eta=CouplingConditioner(
+        conditioner_eta=modularbayes.MLPConditioner(
             output_dim=math.prod(event_shape),
             hidden_sizes=hidden_sizes_conditioner_eta,
             num_bijector_params=num_bijector_params,
             name='conditioner_eta_sigma',
         ),
-        conditioner=CouplingConditioner(
+        conditioner=modularbayes.MLPConditioner(
             output_dim=math.prod(event_shape),
             hidden_sizes=hidden_sizes_conditioner,
             num_bijector_params=num_bijector_params,
@@ -422,13 +363,13 @@ def meta_nsf_beta_tau(
     layer = modularbayes.EtaConditionalMaskedCoupling(
         mask=mask,
         bijector=bijector_fn,
-        conditioner_eta=CouplingConditioner(
+        conditioner_eta=modularbayes.MLPConditioner(
             output_dim=math.prod(event_shape),
             hidden_sizes=hidden_sizes_conditioner_eta,
             num_bijector_params=num_bijector_params,
             name='conditioner_eta_beta_tau',
         ),
-        conditioner=CouplingConditioner(
+        conditioner=modularbayes.MLPConditioner(
             output_dim=math.prod(event_shape),
             hidden_sizes=hidden_sizes_conditioner,
             num_bijector_params=num_bijector_params,

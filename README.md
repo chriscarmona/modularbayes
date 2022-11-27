@@ -22,12 +22,13 @@ We include code to replicate all the examples from our article. By executing the
 Plase examine the script before execution. You can customize the output directories and choose the experiments that you wish to run.
 ```bash
 chmod +x examples/run.sh
-sh examples/run.sh
+bash examples/run.sh
 ```
 
 We recommend to monitor training via tensorboard
 
 ```bash
+WORK_DIR=$HOME/modularbayes-output
 tensorboard --logdir=$WORK_DIR
 ```
 

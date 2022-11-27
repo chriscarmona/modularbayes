@@ -1,5 +1,6 @@
-"""Main script for running the Random effects model."""
+"""Main script for training the model."""
 
+import os
 import warnings
 
 from absl import app
@@ -12,8 +13,8 @@ import tensorflow as tf
 
 import run_mcmc
 import train_flow
-import train_vmp_map
 import train_vmp_flow
+import train_vmp_map
 
 FLAGS = flags.FLAGS
 
@@ -27,12 +28,15 @@ config_flags.DEFINE_config_file(
 # TODO: Remove when Haiku stop producing "jax.tree_leaves is deprecated" warning
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
+
 def main(argv):
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
   # log to a file
   if FLAGS.log_dir:
+    if not os.path.exists(FLAGS.log_dir):
+      os.makedirs(FLAGS.log_dir)
     logging.get_absl_handler().use_absl_log_file()
 
   # Hide any GPUs form TensorFlow. Otherwise TF might reserve memory and make
@@ -48,10 +52,10 @@ def main(argv):
     run_mcmc.sample_and_evaluate(FLAGS.config, FLAGS.workdir)
   elif FLAGS.config.method == 'flow':
     train_flow.train_and_evaluate(FLAGS.config, FLAGS.workdir)
-  elif FLAGS.config.method == 'vmp_map':
-    train_vmp_map.train_and_evaluate(FLAGS.config, FLAGS.workdir)
   elif FLAGS.config.method == 'vmp_flow':
     train_vmp_flow.train_and_evaluate(FLAGS.config, FLAGS.workdir)
+  elif FLAGS.config.method == 'vmp_map':
+    train_vmp_map.train_and_evaluate(FLAGS.config, FLAGS.workdir)
 
 
 if __name__ == '__main__':
