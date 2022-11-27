@@ -4,3 +4,4 @@ jupyterlab
 matplotlib
 plotly
 seaborn
+arviz

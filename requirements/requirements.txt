@@ -1,5 +1,4 @@
 absl-py
-arviz
 chex
 distrax
 dm-haiku
@@ -11,7 +10,5 @@ ml-collections
 numpy
 optax
 pandas
-seaborn
-sklearn
 tensorflow; sys_platform != 'darwin' or platform_machine != 'arm64'
 tensorflow-macos; sys_platform == 'darwin' and platform_machine == 'arm64'
