@@ -8,6 +8,12 @@ from modularbayes._src.typing import Any, Array, Tuple
 
 
 class ConditionalBijector(base.Bijector):
+  """Differentiable bijection that knows to compute its Jacobian determinant.
+
+  This class acts similarly to `distrax.Bijector`, but expand the functionality
+  to take in an additional "context" argument that serves as an additional
+  input to the bijector. Useful to define conditional random variables.
+  """
 
   def forward(self, x: Array, context: Any) -> Array:
     """Computes y = f(x)."""

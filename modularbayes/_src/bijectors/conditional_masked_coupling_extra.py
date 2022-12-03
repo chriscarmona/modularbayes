@@ -3,12 +3,11 @@
 import distrax
 from distrax._src.utils import math
 
-import jax
 import jax.numpy as jnp
 
 from modularbayes import ConditionalBijector
 from modularbayes._src.typing import (Array, BijectorParams, Callable, List,
-                                 Optional, Tuple)
+                                      Tuple)
 
 
 class EtaConditionalMaskedCoupling(ConditionalBijector, distrax.MaskedCoupling):

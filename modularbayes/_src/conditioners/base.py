@@ -1,13 +1,13 @@
 """Define Trainable Conditioner to use in the Normalizing Flows.
 
 The transformation in a normalizing flow can be interpreted of two parts:
-1) Conditioner: Takes the input \epsilon and produce parameters that will be
+1) Conditioner: Takes the input epsilon and produce parameters that will be
      used by the bijector. The parameters in a Normalising flow are often here
-     Eg. in an affine AR flow, take \epsilon_{1:t-1} to produce loc_t and
+     Eg. in an affine AR flow, take epsilon_{1:t-1} to produce loc_t and
      log_scale_t.
-2) Bijector: Transform \epsilon using a function that depend on the parameters
+2) Bijector: Transform epsilon using a function that depend on the parameters
      produced by the conditioner.
-     Eg. Affine transformation: \epsilon_t * scale_t + loc_t
+     Eg. Affine transformation: epsilon_t * scale_t + loc_t
 
 In this script we define functions that can be used as conditioners.
 """
@@ -19,11 +19,10 @@ from modularbayes._src.typing import Optional, Sequence
 
 
 class MeanFieldConditioner(hk.Module):
-  """Auxiliary Conditioner for the most basic Mean Field flow.
-  
-  This conditioner does not take any input, simply returns `loc` and `log_scale`
-  to be used by an affine bijector.
+  """Mean Field Conditioner.
 
+  This is an auxiliary conditioner that does not take any input, simply returns
+  `loc` and `log_scale` to be used by an affine bijector.
   By assigning these these parameters to a hk.Module, they are also discoverable
   by hk.experimental.tabulate.
   """
@@ -48,7 +47,6 @@ class MeanFieldConditioner(hk.Module):
 
 class MLPConditioner(hk.Module):
   """Multi-Layer Perceptron (MLP) Conditioner.
-  
   This conditioner takes the flow input, pass it through a MLP and produce
   parameters for the bijector as required. This is normally used in with the
   Masked Coupling Bijector to make sure that the lower triangular Jabobian is
@@ -60,7 +58,7 @@ class MLPConditioner(hk.Module):
       output_dim: int,
       hidden_sizes: Sequence[int],
       num_bijector_params: int,
-      name: Optional[str] = 'nsf_conditioner',
+      name: Optional[str] = "nsf_conditioner",
   ):
     super().__init__(name=name)
     self.output_dim = output_dim

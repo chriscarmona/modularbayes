@@ -7,6 +7,12 @@ from modularbayes._src.typing import Array, Optional, Tuple
 
 
 class ConditionalChain(modularbayes.ConditionalBijector, distrax.Chain):
+  """Composition of a sequence of bijectors into a single bijector.
+
+  This class acts similarly to `distrax.Chain`, but expand the functionality to
+  allow for conditional bijectors, i.e. bijectors that take in an additional
+  context argument.
+  """
 
   def forward(self, x: Array, context: Optional[Array] = None) -> Array:
     """Computes y = f(x)."""

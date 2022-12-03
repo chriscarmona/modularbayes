@@ -1,6 +1,6 @@
 """modularbayes: Variational methods for Bayesian Semi-Modular Inference."""
 
-__version__ = "0.0.1"
+__version__ = '0.1.0'
 
 from modularbayes._src.bijectors.blockwise import Blockwise
 from modularbayes._src.bijectors.conditional_bijector import ConditionalBijector
@@ -16,15 +16,10 @@ from modularbayes._src.distributions.transformed import Transformed
 
 from modularbayes._src.metaposterior.vmp_map import VmpMap
 
-from modularbayes._src.utils.misc import as_lower_chol
 from modularbayes._src.utils.misc import cart2pol
-from modularbayes._src.utils.misc import issymmetric
-from modularbayes._src.utils.misc import cholesky_expand_right
 from modularbayes._src.utils.misc import colour_fader
 from modularbayes._src.utils.misc import flatten_dict
-from modularbayes._src.utils.misc import force_symmetric
 from modularbayes._src.utils.misc import list_from_csv
-from modularbayes._src.utils.misc import log1mexpm
 from modularbayes._src.utils.misc import plot_to_image
 from modularbayes._src.utils.misc import normalize_images
 
@@ -48,15 +43,10 @@ __all__ = (
     'ConditionalTransformed',
     'Transformed',
     'VmpMap',
-    'as_lower_chol',
     'cart2pol',
-    'issymmetric',
-    'cholesky_expand_right',
     'colour_fader',
     'flatten_dict',
-    'force_symmetric',
     'list_from_csv',
-    'log1mexpm',
     'plot_to_image',
     'normalize_images',
     'TrainState',

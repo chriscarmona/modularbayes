@@ -6,7 +6,6 @@ from typing import (Any, Callable, Dict, Iterable, Iterator, List, Mapping,
 from pathlib import Path, PosixPath
 
 import jax
-import jax.numpy as jnp
 
 import numpy as np
 
@@ -39,3 +38,37 @@ RangeInt = Tuple[int, Union[int, None]]
 Kernel = tfp.math.psd_kernels.PositiveSemidefiniteKernel
 
 SmiEta = Mapping[str, np.ndarray]
+
+__all__ = [
+    'Any',
+    'Array',
+    'ArrayNumpy',
+    'ArraySharded',
+    'BijectorParams',
+    'Callable',
+    'ConfigDict',
+    'Dict',
+    'IntLike',
+    'Iterable',
+    'Iterator',
+    'Kernel',
+    'List',
+    'Mapping',
+    'Metrics',
+    'NamedTuple',
+    'Numeric',
+    'Optional',
+    'OrderedDict',
+    'PRNGKey',
+    'Path',
+    'PosixPath',
+    'RangeFloat',
+    'RangeInt',
+    'Sequence',
+    'Scalar',
+    'Shape',
+    'SmiEta',
+    'SummaryWriter',
+    'Tuple',
+    'Union',
+]

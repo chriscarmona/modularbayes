@@ -26,7 +26,7 @@ class VmpMap(hk.Module):
         params_flow_init)
     self.params_flow_shapes = [x.shape for x in leaves]
     # Total number of output paramemters by the vmp
-    self.output_dim = sum([x.flatten().shape[0] for x in leaves])
+    self.output_dim = sum(x.flatten().shape[0] for x in leaves)
 
     self.hidden_sizes = hidden_sizes
 
