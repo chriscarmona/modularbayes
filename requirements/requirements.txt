@@ -1,10 +1,9 @@
 absl-py
 chex
-distrax
+distrax>=0.1.2
 dm-haiku
 flax
 jax
-jaxlib
 matplotlib
 ml-collections
 numpy

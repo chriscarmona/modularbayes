@@ -48,18 +48,17 @@ def plot_beta_sigma(
       alpha=pars['alpha'],
       color=pars['colour'])
   sns.kdeplot(
-      posterior_samples_df[f'beta_{group}'],
+      x=posterior_samples_df[f'beta_{group}'],
       ax=g.ax_marg_x,
       shade=True,
       color=pars['colour'],
       legend=False)
   sns.kdeplot(
-      posterior_samples_df[f'sigma_{group}'],
+      y=posterior_samples_df[f'sigma_{group}'],
       ax=g.ax_marg_y,
       shade=True,
       color=pars['colour'],
-      legend=False,
-      vertical=True)
+      legend=False)
   # Add title
   g.fig.subplots_adjust(top=0.9)
   g.fig.suptitle("Random effects model" +

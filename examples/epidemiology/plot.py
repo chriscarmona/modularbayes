@@ -94,18 +94,17 @@ def plot_theta(
       alpha=pars['alpha'],
       color=pars['colour'])
   sns.kdeplot(
-      posterior_samples_df['theta_1'],
+      x=posterior_samples_df['theta_1'],
       ax=g.ax_marg_x,
       shade=True,
       color=pars['colour'],
       legend=False)
   sns.kdeplot(
-      posterior_samples_df['theta_2'],
+      y=posterior_samples_df['theta_2'],
       ax=g.ax_marg_y,
       shade=True,
       color=pars['colour'],
-      legend=False,
-      vertical=True)
+      legend=False)
   # Add title
   g.fig.subplots_adjust(top=0.9)
   g.fig.suptitle("HPV/Cancer model" +

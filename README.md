@@ -17,16 +17,16 @@ The article contains two substantial new methods. First, we give variational met
 
 ## Examples
 
-We include code to replicate all the examples from our article. By executing the `run.sh` bash script one can train all variational posteriors and produce visualizations and summaries (follow [*Installation instructions*](#create-a-virtual-environment) before running the script).
+We provide code to replicate all the experiments from our article in the [examples](https://github.com/chriscarmona/modularbayes/tree/main/examples) folder.
+There are main two examples: 1) epidemiological model and 2) random effects model.
+By executing the `run.sh` bash script in that folder, one can train all variational posteriors and produce visualizations and summaries (follow [*Installation instructions*](#installation-instructions) and examine `run.sh` before execution).
 
-Plase examine the script before execution. You can customize the output directories and choose the experiments that you wish to run.
+You can customize the output directories within the script and choose the experiments that you wish to run.
 ```bash
 chmod +x examples/run.sh
 bash examples/run.sh
 ```
-
-We recommend to monitor training via tensorboard
-
+Results produced during the optimization can be monitored in [Tensorboard](https://www.tensorflow.org/tensorboard):
 ```bash
 WORK_DIR=$HOME/modularbayes-output
 tensorboard --logdir=$WORK_DIR
@@ -36,15 +36,14 @@ tensorboard --logdir=$WORK_DIR
 
 1. \[Optional] Create a new virtual environment for this project (see [*Create a virtual environment*](#create-a-virtual-environment) below).
 2. Install JAX. This may vary according to your CUDA version (See [JAX installation](https://github.com/google/jax#installation)).
-3. Clone this repository locally
+3. Install the latest released version of `modularbayes` from [Pypi](https://pypi.org/project/modularbayes/) via:
 ```bash
-git clone https://github.com/chriscarmona/modularbayes.git
+pip install modularbayes
 ```
-4. Install the `modularbayes` module
+or you can install the latest development version from GitHub:
 ```bash
-pip install -e ./modularbayes
+pip install git+https://github.com/chriscarmona/modularbayes
 ```
-
 
 ## Citation
 
