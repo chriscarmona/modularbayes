@@ -7,13 +7,21 @@ def get_config():
   """Get the hyperparameter configuration."""
   config = ml_collections.ConfigDict()
 
+  # Model hyper-parameters, defining the prior.
+  config.prior_hparams = ml_collections.ConfigDict()
+  config.prior_hparams.phi_alpha = 1.
+  config.prior_hparams.phi_beta = 1.
+  config.prior_hparams.theta0_scale = 100.
+  config.prior_hparams.theta1_concentration = 1
+  config.prior_hparams.theta1_rate = 0.1
+
   config.method = 'flow'
 
   # SMI degree of influence of the poisson module
-  config.smi_eta = 1.0
+  config.smi_eta_cancer = 1.0
 
   # Defined in `epidemiology.models.flows`.
-  config.flow_name = 'mean_field'
+  config.flow_name = 'mf'
 
   # kwargs to be passed to the flow
   config.flow_kwargs = ml_collections.ConfigDict()

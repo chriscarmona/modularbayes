@@ -11,7 +11,7 @@ import jax
 from ml_collections import config_flags
 import tensorflow as tf
 
-import run_mcmc
+import sample_mcmc
 import train_flow
 import train_vmp_flow
 import train_vmp_map
@@ -49,7 +49,7 @@ def main(argv):
   logging.info('JAX device count: %r', jax.device_count())
 
   if FLAGS.config.method == 'mcmc':
-    run_mcmc.sample_and_evaluate(FLAGS.config, FLAGS.workdir)
+    sample_mcmc.sample_and_evaluate(FLAGS.config, FLAGS.workdir)
   elif FLAGS.config.method == 'flow':
     train_flow.train_and_evaluate(FLAGS.config, FLAGS.workdir)
   elif FLAGS.config.method == 'vmp_flow':

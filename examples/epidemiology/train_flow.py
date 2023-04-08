@@ -4,6 +4,9 @@ import pathlib
 from absl import logging
 
 import numpy as np
+
+from arviz import InferenceData
+
 from flax.metrics import tensorboard
 
 import jax
@@ -14,6 +17,7 @@ import optax
 
 import flows
 import log_prob_fun
+from log_prob_fun import ModelParams, ModelParamsCut, SmiEta
 import plot
 import data
 
@@ -22,8 +26,7 @@ from modularbayes import (flatten_dict, initial_state_ckpt, update_states,
                           save_checkpoint)
 from modularbayes._src.typing import (Any, Array, Batch, ConfigDict, Dict,
                                       IntLike, List, Optional, PRNGKey,
-                                      Sequence, SmiEta, SummaryWriter, Tuple,
-                                      Union)
+                                      Sequence, Tuple, Union)
 
 # Set high precision for matrix multiplication in jax
 jax.config.update('jax_default_matmul_precision', 'float32')
@@ -31,7 +34,7 @@ jax.config.update('jax_default_matmul_precision', 'float32')
 np.set_printoptions(suppress=True, precision=4)
 
 
-def load_dataset() -> Dict[str, Array]:
+def load_data() -> Dict[str, Array]:
   """Load Epidemiology data from Plummer."""
   dataset_dict = dict(
       zip(['Z', 'N', 'Y', 'T'],
@@ -57,82 +60,78 @@ def make_optimizer(
   return optimizer
 
 
-def q_distr_phi(
+def sample_q_nocut(
     flow_name: str,
     flow_kwargs: Dict[str, Any],
     sample_shape: Union[IntLike, Sequence[IntLike]],
 ) -> Dict[str, Any]:
-  """Sample from model posterior"""
+  """Sample from variational posterior for no-cut parameters."""
 
-  q_distr_out = {}
+  q_output = {}
 
   # Define normalizing flows
-  q_distr = getattr(flows, flow_name + '_phi')(**flow_kwargs)
+  q_distr = getattr(flows, 'get_q_nocut_' + flow_name)(**flow_kwargs)
 
   # Sample from flows
-  (phi_sample, phi_log_prob_posterior,
-   phi_base_sample) = q_distr.sample_and_log_prob_with_base(
+  (sample_flow_concat, sample_logprob,
+   sample_base) = q_distr.sample_and_log_prob_with_base(
        seed=hk.next_rng_key(),
        sample_shape=sample_shape,
    )
 
   # Split flow into model parameters
-  q_distr_out['posterior_sample'] = {}
-  q_distr_out['posterior_sample'].update(
-      flows.split_flow_phi(
-          samples=phi_sample,
-          **flow_kwargs,
-      ))
+  q_output['sample'] = jax.vmap(lambda x: flows.split_flow_nocut(
+      concat_params=x,
+      **flow_kwargs,
+  ))(
+      sample_flow_concat)
 
   # sample from base distribution that generated phi
-  q_distr_out['phi_base_sample'] = phi_base_sample
+  q_output['sample_base'] = sample_base
 
-  # log P(phi)
-  q_distr_out['phi_log_prob'] = phi_log_prob_posterior
+  # variational posterior evaluated in the sample
+  q_output['sample_logprob'] = sample_logprob
 
-  return q_distr_out
+  return q_output
 
 
-def q_distr_theta(
+def sample_q_cutgivennocut(
     flow_name: str,
     flow_kwargs: Dict[str, Any],
-    phi_base_sample: Array,
-    is_aux: bool,
+    nocut_base_sample: Array,
 ) -> Dict[str, Any]:
-  """Sample from model posterior"""
+  """Sample from variational posterior for cut parameters
+  Conditional on values of no-cut parameters."""
 
-  q_distr_out = {}
+  q_output = {}
 
-  num_samples = phi_base_sample.shape[0]
+  num_samples = nocut_base_sample.shape[0]
 
   # Define normalizing flows
-  q_distr = getattr(flows, flow_name + '_theta')(**flow_kwargs)
+  q_distr = getattr(flows, 'get_q_cutgivennocut_' + flow_name)(**flow_kwargs)
 
   # Sample from flows
-  (theta_sample, theta_log_prob_posterior) = q_distr.sample_and_log_prob(
+  (sample, sample_logprob) = q_distr.sample_and_log_prob(
       seed=hk.next_rng_key(),
       sample_shape=(num_samples,),
-      context=phi_base_sample,
+      context=nocut_base_sample,
   )
 
   # Split flow into model parameters
-  q_distr_out['posterior_sample'] = {}
-  q_distr_out['posterior_sample'].update(
-      flows.split_flow_theta(
-          samples=theta_sample,
-          is_aux=is_aux,
-          **flow_kwargs,
-      ))
+  q_output['sample'] = jax.vmap(lambda x: flows.split_flow_cut(
+      concat_params=x,
+      **flow_kwargs,
+  ))(
+      sample)
 
   # log P(theta|phi)
-  q_distr_out['theta_' + ('aux_' if is_aux else '') +
-              'log_prob'] = theta_log_prob_posterior
+  q_output['sample_logprob'] = sample_logprob
 
-  return q_distr_out
+  return q_output
 
 
-def sample_all_flows(
-    params_tuple: Tuple[hk.Params],
+def sample_q(
+    lambda_tuple: Tuple[hk.Params],
     prng_key: PRNGKey,
     flow_name: str,
     flow_kwargs: Dict[str, Any],
@@ -142,42 +141,49 @@ def sample_all_flows(
 
   prng_seq = hk.PRNGSequence(prng_key)
 
-  # phi
-  q_distr_out = hk.transform(q_distr_phi).apply(
-      params_tuple[0],
+  q_output = {}
+
+  # Sample from q(no_cut_params)
+  q_output_nocut_ = hk.transform(sample_q_nocut).apply(
+      lambda_tuple[0],
       next(prng_seq),
       flow_name=flow_name,
       flow_kwargs=flow_kwargs,
       sample_shape=sample_shape,
   )
 
-  # theta
-  q_distr_out_theta = hk.transform(q_distr_theta).apply(
-      params_tuple[1],
+  # Sample from q(cut_params|no_cut_params)
+  q_output_cut_ = hk.transform(sample_q_cutgivennocut).apply(
+      lambda_tuple[1],
       next(prng_seq),
       flow_name=flow_name,
       flow_kwargs=flow_kwargs,
-      phi_base_sample=q_distr_out['phi_base_sample'],
-      is_aux=False,
+      nocut_base_sample=q_output_nocut_['sample_base'],
   )
-  q_distr_out['posterior_sample'].update(q_distr_out_theta['posterior_sample'])
-  q_distr_out['theta_log_prob'] = q_distr_out_theta['theta_log_prob']
+
+  q_output['model_params_sample'] = ModelParams(**{
+      **q_output_nocut_['sample']._asdict(),
+      **q_output_cut_['sample']._asdict(),
+  })
+  q_output['log_q_nocut'] = q_output_nocut_['sample_logprob']
+  q_output['log_q_cut'] = q_output_cut_['sample_logprob']
 
   if flow_kwargs.is_smi:
-    q_distr_out_theta_aux = hk.transform(q_distr_theta).apply(
-        params_tuple[2],
+    q_output_cut_aux_ = hk.transform(sample_q_cutgivennocut).apply(
+        lambda_tuple[2],
         next(prng_seq),
         flow_name=flow_name,
         flow_kwargs=flow_kwargs,
-        phi_base_sample=q_distr_out['phi_base_sample'],
-        is_aux=True,
+        nocut_base_sample=q_output_nocut_['sample_base'],
     )
-    q_distr_out['posterior_sample'].update(
-        q_distr_out_theta_aux['posterior_sample'])
-    q_distr_out['theta_aux_log_prob'] = q_distr_out_theta_aux[
-        'theta_aux_log_prob']
+    q_output['model_params_aux_sample'] = ModelParams(
+        **{
+            **q_output_nocut_['sample']._asdict(),
+            **q_output_cut_aux_['sample']._asdict(),
+        })
+    q_output['log_q_cut_aux'] = q_output_cut_aux_['sample_logprob']
 
-  return q_distr_out
+  return q_output
 
 
 def elbo_estimate(
@@ -187,7 +193,8 @@ def elbo_estimate(
     num_samples: int,
     flow_name: str,
     flow_kwargs: Dict[str, Any],
-    smi_eta: Optional[SmiEta],
+    prior_hparams: Dict[str, float],
+    smi_eta: Optional[SmiEta] = None,
 ) -> Dict[str, Array]:
   """Estimate ELBO
 
@@ -196,8 +203,8 @@ def elbo_estimate(
   """
 
   # Sample from flow
-  q_distr_out = sample_all_flows(
-      params_tuple=params_tuple,
+  q_distr_out = sample_q(
+      lambda_tuple=params_tuple,
       prng_key=prng_key,
       flow_name=flow_name,
       flow_kwargs=flow_kwargs,
@@ -206,54 +213,44 @@ def elbo_estimate(
 
   is_smi = False if smi_eta is None else True
 
-  shared_params_names = [
-      'phi',
-  ]
-  refit_params_names = [
-      'theta',
-  ]
-
   # ELBO stage 1: Power posterior
   if is_smi:
-    posterior_sample_dict_stg1 = {}
-    for key in shared_params_names:
-      posterior_sample_dict_stg1[key] = q_distr_out['posterior_sample'][key]
-    for key in refit_params_names:
-      posterior_sample_dict_stg1[key] = q_distr_out['posterior_sample'][key +
-                                                                        '_aux']
-    log_prob_joint_stg1 = log_prob_fun.log_prob_joint(
+    log_prob_joint_stg1 = jax.vmap(lambda x: log_prob_fun.logprob_joint(
         batch=batch,
-        posterior_sample_dict=posterior_sample_dict_stg1,
+        model_params=x,
+        prior_hparams=prior_hparams,
         smi_eta=smi_eta,
-    )
-    log_q_stg1 = (
-        q_distr_out['phi_log_prob'] + q_distr_out['theta_aux_log_prob'])
+    ))(
+        q_distr_out['model_params_aux_sample'])
+    log_q_stg1 = (q_distr_out['log_q_nocut'] + q_distr_out['log_q_cut_aux'])
 
     elbo_stg1 = log_prob_joint_stg1 - log_q_stg1
   else:
     elbo_stg1 = 0.
 
-  # ELBO stage 2: Refit theta
-  posterior_sample_dict_stg2 = {}
-  for key in shared_params_names:
-    if is_smi:
-      posterior_sample_dict_stg2[key] = jax.lax.stop_gradient(
-          q_distr_out['posterior_sample'][key])
-    else:
-      posterior_sample_dict_stg2[key] = q_distr_out['posterior_sample'][key]
-  for key in refit_params_names:
-    posterior_sample_dict_stg2[key] = q_distr_out['posterior_sample'][key]
-  log_prob_joint_stg2 = log_prob_fun.log_prob_joint(
+  # ELBO stage 2: Conventional posterior (with stop_gradient)
+  if is_smi:
+    model_params_stg2 = ModelParams(
+        **{
+            k: (v if k in ModelParamsCut._fields else jax.lax.stop_gradient(v))
+            for k, v in q_distr_out['model_params_sample']._asdict().items()
+        })
+  else:
+    model_params_stg2 = q_distr_out['model_params_sample']
+
+  log_prob_joint_stg2 = jax.vmap(lambda x: log_prob_fun.logprob_joint(
       batch=batch,
-      posterior_sample_dict=posterior_sample_dict_stg2,
+      model_params=x,
+      prior_hparams=prior_hparams,
       smi_eta=None,
-  )
+  ))(
+      model_params_stg2)
   if is_smi:
     log_q_stg2 = (
-        jax.lax.stop_gradient(q_distr_out['phi_log_prob']) +
-        q_distr_out['theta_log_prob'])
+        jax.lax.stop_gradient(q_distr_out['log_q_nocut']) +
+        q_distr_out['log_q_cut'])
   else:
-    log_q_stg2 = (q_distr_out['phi_log_prob'] + q_distr_out['theta_log_prob'])
+    log_q_stg2 = (q_distr_out['log_q_nocut'] + q_distr_out['log_q_cut'])
 
   elbo_stg2 = log_prob_joint_stg2 - log_q_stg2
 
@@ -274,81 +271,33 @@ def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
   return loss_avg
 
 
-def log_images(
+def sample_q_as_az(
     state_list: List[TrainState],
-    prng_key: PRNGKey,
-    flow_name: str,
-    flow_kwargs: Dict[str, Any],
-    num_samples_plot: int,
-    smi_eta: Optional[SmiEta] = None,
-    summary_writer: Optional[SummaryWriter] = None,
-    workdir_png: Optional[str] = None,
-) -> None:
-  """Plots to monitor during training."""
-
-  # Sample from flow
-  q_distr_out = sample_all_flows(
-      params_tuple=[state.params for state in state_list],
-      prng_key=prng_key,
-      flow_name=flow_name,
-      flow_kwargs=flow_kwargs,
-      sample_shape=(num_samples_plot,),
-  )
-
-  plot.posterior_samples(
-      posterior_sample_dict=q_distr_out['posterior_sample'],
-      summary_writer=summary_writer,
-      step=state_list[0].step,
-      eta=smi_eta['modules'][0][1],
-      workdir_png=workdir_png,
-  )
-
-
-def compute_elpd(
-    state_list: List[TrainState],
-    batch: Batch,
+    hpv_dataset: Dict[str, Any],
     prng_key: PRNGKey,
     flow_name: str,
     flow_kwargs: Dict[str, Any],
     num_samples: int,
-):
-  """Compute ELPD via WAIC"""
-
+) -> InferenceData:
+  """Plots to monitor during training."""
   # Sample from flow
-  q_distr_out = sample_all_flows(
-      params_tuple=[state.params for state in state_list],
+  q_distr_out = sample_q(
+      lambda_tuple=[state.params for state in state_list],
       prng_key=prng_key,
       flow_name=flow_name,
       flow_kwargs=flow_kwargs,
       sample_shape=(num_samples,),
   )
-
-  loglik_pointwise = log_prob_fun.log_lik_vectorised(
-      batch['Z'],
-      batch['Y'],
-      batch['N'],
-      batch['T'],
-      q_distr_out['posterior_sample']['phi'],
-      q_distr_out['posterior_sample']['theta'],
+  # Add dimension for "chains"
+  model_params_az = jax.tree_map(lambda x: x[None, ...],
+                                 q_distr_out['model_params_sample'])
+  # Create InferenceData object
+  hpv_az = plot.hpv_az_from_samples(
+      hpv_dataset=hpv_dataset,
+      model_params=model_params_az,
   )
 
-  lpd = jax.scipy.special.logsumexp(
-      loglik_pointwise, axis=0) - jnp.log(num_samples)  # colLogMeanExps
-  p_waic = jnp.var(loglik_pointwise, axis=0)
-  elpd_waic = lpd - p_waic
-
-  # posterior_az = az.InferenceData(
-  #     posterior=az.dict_to_dataset({
-  #         k: np.expand_dims(v, axis=0)
-  #         for k, v in posterior_sample_dict.items()
-  #     }),
-  #     log_likelihood=az.dict_to_dataset(
-  #         {'x': np.expand_dims(loglik_pointwise[:, :, 1], axis=0)}),
-  # )
-  # posterior_az.log_likelihood.stack(__sample__=("chain", "draw")).shape
-  # elpd_data = az.loo(data=posterior_az, pointwise=True)
-
-  return elpd_waic
+  return hpv_az
 
 
 def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
@@ -362,14 +311,19 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     Final TrainState.
   """
 
+  # Add trailing slash
+  workdir = workdir.rstrip("/") + '/'
+
   # Initialize random keys
   prng_seq = hk.PRNGSequence(config.seed)
 
   # Full dataset used everytime
   # Small data, no need to batch
-  train_ds = load_dataset()
+  train_ds = load_data()
 
-  smi_eta = {'modules': [[1.0, config.smi_eta]]}
+  # In general, it would be possible to modulate the influence of both modules
+  # for now, we only focus on the influence of the cancer module
+  smi_eta = SmiEta(hpv=1.0, cancer=config.smi_eta_cancer)
 
   phi_dim = train_ds['Z'].shape[0]
   theta_dim = 2
@@ -389,18 +343,15 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   else:
     summary_writer = None
 
-  if smi_eta is not None:
-    smi_eta = {k: jnp.array(v) for k, v in smi_eta.items()}
-
   checkpoint_dir = str(pathlib.Path(workdir) / 'checkpoints')
   state_list = []
   state_name_list = []
 
-  state_name_list.append('phi')
+  state_name_list.append('lambda_nocut')
   state_list.append(
       initial_state_ckpt(
           checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
-          forward_fn=hk.transform(q_distr_phi),
+          forward_fn=hk.transform(sample_q_nocut),
           forward_fn_kwargs={
               'flow_name': config.flow_name,
               'flow_kwargs': config.flow_kwargs,
@@ -410,50 +361,48 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           optimizer=make_optimizer(**config.optim_kwargs),
       ))
 
-  # Get an initial sample of phi
+  # Get an initial sample of the base distribution of nocut params
   # (used below to initialize theta)
-  phi_base_sample_init = hk.transform(q_distr_phi).apply(
+  nocut_base_sample_init = hk.transform(sample_q_nocut).apply(
       state_list[0].params,
       next(prng_seq),
       flow_name=config.flow_name,
       flow_kwargs=config.flow_kwargs,
       sample_shape=(config.num_samples_elbo,),
-  )['phi_base_sample']
+  )['sample_base']
 
-  state_name_list.append('theta')
+  state_name_list.append('lambda_cut')
   state_list.append(
       initial_state_ckpt(
           checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
-          forward_fn=hk.transform(q_distr_theta),
+          forward_fn=hk.transform(sample_q_cutgivennocut),
           forward_fn_kwargs={
               'flow_name': config.flow_name,
               'flow_kwargs': config.flow_kwargs,
-              'phi_base_sample': phi_base_sample_init,
-              'is_aux': False,
+              'nocut_base_sample': nocut_base_sample_init,
           },
           prng_key=next(prng_seq),
           optimizer=make_optimizer(**config.optim_kwargs),
       ))
   if config.flow_kwargs.is_smi:
-    state_name_list.append('theta_aux')
+    state_name_list.append('lambda_cut_aux')
     state_list.append(
         initial_state_ckpt(
             checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
-            forward_fn=hk.transform(q_distr_theta),
+            forward_fn=hk.transform(sample_q_cutgivennocut),
             forward_fn_kwargs={
                 'flow_name': config.flow_name,
                 'flow_kwargs': config.flow_kwargs,
-                'phi_base_sample': phi_base_sample_init,
-                'is_aux': True,
+                'nocut_base_sample': nocut_base_sample_init,
             },
             prng_key=next(prng_seq),
             optimizer=make_optimizer(**config.optim_kwargs),
         ))
 
   # Print a useful summary of the execution of the flow architecture.
-  logging.info('FLOW PHI:')
+  logging.info('\nFlow no-cut parameters:\n')
   tabulate_fn_ = hk.experimental.tabulate(
-      f=lambda params, prng_key: hk.transform(q_distr_phi).apply(
+      f=lambda params, prng_key: hk.transform(sample_q_nocut).apply(
           params,
           prng_key,
           flow_name=config.flow_name,
@@ -472,15 +421,14 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   for line in summary.split("\n"):
     logging.info(line)
 
-  logging.info('FLOW THETA:')
+  logging.info('\nFlow cut parameters:\n')
   tabulate_fn_ = hk.experimental.tabulate(
-      f=lambda params, prng_key: hk.transform(q_distr_theta).apply(
+      f=lambda params, prng_key: hk.transform(sample_q_cutgivennocut).apply(
           params,
           prng_key,
           flow_name=config.flow_name,
           flow_kwargs=config.flow_kwargs,
-          phi_base_sample=phi_base_sample_init,
-          is_aux=False,
+          nocut_base_sample=nocut_base_sample_init,
       ),
       columns=(
           "module",
@@ -495,31 +443,35 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     logging.info(line)
 
   # Jit function to update training states
-  update_states_jit = lambda state_list, batch, prng_key, smi_eta: update_states(
-      state_list=state_list,
-      batch=batch,
-      prng_key=prng_key,
-      optimizer=make_optimizer(**config.optim_kwargs),
-      loss_fn=loss,
-      loss_fn_kwargs={
-          'num_samples': config.num_samples_elbo,
-          'flow_name': config.flow_name,
-          'flow_kwargs': config.flow_kwargs,
-          'smi_eta': smi_eta,
-      },
-  )
-  update_states_jit = jax.jit(update_states_jit)
+  @jax.jit
+  def update_states_jit(state_list, batch, prng_key, smi_eta):
+    return update_states(
+        state_list=state_list,
+        batch=batch,
+        prng_key=prng_key,
+        optimizer=make_optimizer(**config.optim_kwargs),
+        loss_fn=loss,
+        loss_fn_kwargs={
+            'num_samples': config.num_samples_elbo,
+            'flow_name': config.flow_name,
+            'flow_kwargs': config.flow_kwargs,
+            'prior_hparams': config.prior_hparams,
+            'smi_eta': smi_eta,
+        },
+    )
 
-  elbo_validation_jit = lambda state_list, batch, prng_key, smi_eta: elbo_estimate(
-      params_tuple=[state.params for state in state_list],
-      batch=batch,
-      prng_key=prng_key,
-      num_samples=config.num_samples_eval,
-      flow_name=config.flow_name,
-      flow_kwargs=config.flow_kwargs,
-      smi_eta=smi_eta,
-  )
-  elbo_validation_jit = jax.jit(elbo_validation_jit)
+  @jax.jit
+  def elbo_validation_jit(state_list, batch, prng_key, smi_eta):
+    return elbo_estimate(
+        params_tuple=[state.params for state in state_list],
+        batch=batch,
+        prng_key=prng_key,
+        num_samples=config.num_samples_eval,
+        flow_name=config.flow_name,
+        flow_kwargs=config.flow_kwargs,
+        prior_hparams=config.prior_hparams,
+        smi_eta=smi_eta,
+    )
 
   if state_list[0].step < config.training_steps:
     logging.info('Training variational posterior...')
@@ -533,15 +485,25 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     if ((state_list[0].step == 0) or
         (state_list[0].step % config.log_img_steps == 0)):
       # print("Logging images...\n")
-      log_images(
+      hpv_az = sample_q_as_az(
           state_list=state_list,
+          hpv_dataset=train_ds,
           prng_key=next(prng_seq),
           flow_name=config.flow_name,
           flow_kwargs=config.flow_kwargs,
-          num_samples_plot=config.num_samples_plot,
-          smi_eta=smi_eta,
-          summary_writer=summary_writer,
+          num_samples=config.num_samples_plot,
+      )
+      plot.hpv_plots_arviz(
+          hpv_az=hpv_az,
+          show_phi_trace=False,
+          show_theta_trace=False,
+          show_loglinear_scatter=True,
+          show_theta_pairplot=True,
+          eta=config.smi_eta_cancer,
+          suffix=f"_eta_cancer_{float(config.smi_eta_cancer):.3f}",
+          step=state_list[0].step,
           workdir_png=workdir,
+          summary_writer=summary_writer,
       )
 
     # Log learning rate
@@ -611,15 +573,25 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     )
 
   # Last plot of posteriors
-  log_images(
+  hpv_az = sample_q_as_az(
       state_list=state_list,
+      hpv_dataset=train_ds,
       prng_key=next(prng_seq),
       flow_name=config.flow_name,
       flow_kwargs=config.flow_kwargs,
-      num_samples_plot=config.num_samples_plot,
-      smi_eta=smi_eta,
-      summary_writer=summary_writer,
+      num_samples=config.num_samples_plot,
+  )
+  plot.hpv_plots_arviz(
+      hpv_az=hpv_az,
+      show_phi_trace=False,
+      show_theta_trace=False,
+      show_loglinear_scatter=True,
+      show_theta_pairplot=True,
+      eta=config.smi_eta_cancer,
+      suffix=f"_eta_cancer_{float(config.smi_eta_cancer):.3f}",
+      step=state_list[0].step,
       workdir_png=workdir,
+      summary_writer=summary_writer,
   )
 
   return state_list
@@ -627,6 +599,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
 # # For debugging
 # config = get_config()
-# config.flow_kwargs.smi_eta = {'modules': [[1.0, 1.0]]}
-# workdir = pathlib.Path.home()/'smi/output/epidemiology/mean_field/eta_1.0'
-# train_and_evaluate(config, workdir)
+# eta = 1.000
+# import pathlib
+# workdir = str(pathlib.Path.home() / f'modularbayes-output-exp/epidemiology/nsf/eta_{eta:.3f}')
+# config.smi_eta_cancer = eta
+# # train_and_evaluate(config, workdir)

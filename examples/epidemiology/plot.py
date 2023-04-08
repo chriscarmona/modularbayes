@@ -1,5 +1,6 @@
 """Plot methods for the epidemiology model."""
 
+from typing import Dict, Any, Mapping, Optional, Tuple
 import warnings
 
 import pathlib
@@ -11,156 +12,186 @@ from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 
-import seaborn as sns
+import arviz as az
+from arviz import InferenceData
 
-from modularbayes import colour_fader, plot_to_image, normalize_images
+from modularbayes import colour_fader, plot_to_image
 
-from modularbayes._src.typing import (Any, Array, Mapping, Optional,
-                                      SummaryWriter, Tuple)
+from modularbayes._src.typing import SummaryWriter
 
-JointGrid = sns.JointGrid
-
-
-def plot_phi(
-    phi: Array,
-    theta: Array,
-    eta: Optional[float] = None,
-    xlim: Optional[Tuple[int]] = None,
-    ylim: Optional[Tuple[int]] = None,
-) -> Tuple[Figure, Axes]:
-  """Relationship between HPV prevalence vs Cancer Incidence ."""
-
-  n_samples, phi_dim = phi.shape
-
-  loglambda = theta[:, [0]] + theta[:, [1]] * phi
-
-  if xlim is None:
-    xlim = (None, None)
-  if ylim is None:
-    ylim = (None, None)
-
-  fig, ax = plt.subplots(figsize=(6, 4))
-  for m in range(phi_dim):
-    ax.scatter(
-        phi[:, m],
-        loglambda[:, m],
-        alpha=np.clip(100 / n_samples, 0., 1.),
-        label=f'{m+1}')
-  ax.set(
-      title="HPV/Cancer model" + ("" if eta is None else f"\n eta {eta:.3f}"),
-      xlabel='phi',
-      ylabel='theta_0 + theta_1 * phi',
-      xlim=xlim,
-      ylim=ylim,
-  )
-  leg = ax.legend(title='Group', loc='lower center', ncol=4, fontsize='x-small')
-  for lh in leg.legendHandles:
-    lh.set_alpha(1)
-
-  return fig, ax
+from log_prob_fun import ModelParams
 
 
-def plot_theta(
-    theta: Array,
-    eta: Optional[float] = None,
-    xlim: Optional[Tuple[int]] = None,
-    ylim: Optional[Tuple[int]] = None,
-) -> JointGrid:
-  """Posterior distribution of theta in the epidemiology model."""
+def hpv_az_from_samples(
+    hpv_dataset: Dict[str, Any],
+    model_params: ModelParams,
+) -> InferenceData:
+  """Converts a samples to an ArviZ InferenceData object.
 
-  n_samples, theta_dim = theta.shape
+  Returns:
+    ArviZ InferenceData object.
+  """
 
-  colour = colour_fader('black', 'gold', (eta if eta is not None else 1.0))
+  # Number of HPV groupss in the data
 
-  posterior_samples_df = pd.DataFrame(
-      theta, columns=[f"theta_{i}" for i in range(1, theta_dim + 1)])
-  # fig, ax = plt.subplots(figsize=(10, 10))
-  pars = {
-      'alpha': np.clip(100 / n_samples, 0., 1.),
-      'colour': colour,
+  assert model_params.phi.ndim == 3 and (
+      model_params.phi.shape[0] < model_params.phi.shape[1]), (
+          "Arrays in model_params_global" +
+          "are expected to have shapes: (num_chains, num_samples, ...)")
+
+  samples_dict = model_params._asdict()
+
+  num_groups = hpv_dataset['Z'].shape[0]
+  assert samples_dict['phi'].shape[-1] == num_groups
+
+  coords_ = {
+      "groups": range(num_groups),
+  }
+  dims_ = {
+      "phi": ["groups"],
   }
 
-  warnings.simplefilter(action='ignore', category=FutureWarning)
-  grid = sns.JointGrid(
-      x='theta_1',
-      y='theta_2',
-      data=posterior_samples_df,
-      xlim=xlim,
-      ylim=ylim,
-      height=5)
-  g = grid.plot_joint(
-      sns.scatterplot,
-      data=posterior_samples_df,
-      alpha=pars['alpha'],
-      color=pars['colour'])
-  sns.kdeplot(
-      x=posterior_samples_df['theta_1'],
-      ax=g.ax_marg_x,
-      shade=True,
-      color=pars['colour'],
-      legend=False)
-  sns.kdeplot(
-      y=posterior_samples_df['theta_2'],
-      ax=g.ax_marg_y,
-      shade=True,
-      color=pars['colour'],
-      legend=False)
-  # Add title
-  g.fig.subplots_adjust(top=0.9)
-  g.fig.suptitle("HPV/Cancer model" +
-                 ("" if eta is None else f"\n eta {eta:.3f}"))
+  hpv_az = az.convert_to_inference_data(
+      samples_dict,
+      coords=coords_,
+      dims=dims_,
+  )
 
-  return grid
+  return hpv_az
 
 
-def posterior_samples(
-    posterior_sample_dict: Mapping[str, Any],
-    step: int,
-    summary_writer: Optional[SummaryWriter] = None,
+def hpv_plots_arviz(
+    hpv_az: InferenceData,
+    show_phi_trace: bool,
+    show_theta_trace: bool,
+    show_loglinear_scatter: bool,
+    show_theta_pairplot: bool,
     eta: Optional[float] = None,
+    suffix: str = '',
+    step: Optional[int] = 0,
     workdir_png: Optional[str] = None,
+    summary_writer: Optional[SummaryWriter] = None,
 ) -> None:
-  """Visualise samples from the approximate posterior distribution."""
 
-  images = []
-
-  # Plot relation: prevalence (lambda) vs incidence (phi)
-  plot_name = "epidemiology_phi"
-  plot_name = plot_name + ("" if (eta is None) else f"_eta_{eta:.3f}")
-  fig, _ = plot_phi(
-      posterior_sample_dict['phi'],
-      posterior_sample_dict['theta'],
-      eta=1.0 if (eta is None) else float(eta),
-      xlim=[0, 0.3],
-      ylim=[-2.5, 2],
-  )
-  if workdir_png:
-    fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
-  # summary_writer.image(plot_name, plot_to_image(fig), step=step)
-  images.append(plot_to_image(fig))
-
-  # Plot relation: theta_2 vs theta_1
-  plot_name = "epidemiology_theta"
-  plot_name = plot_name + ("" if (eta is None) else f"_eta_{eta:.3f}")
-  grid = plot_theta(
-      posterior_sample_dict['theta'],
-      eta=1.0 if (eta is None) else float(eta),
-      xlim=[-3, -1],
-      ylim=[5, 35],
-  )
-  fig = grid.fig
-  if workdir_png:
-    fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
-  # summary_writer.image(plot_name, plot_to_image(fig), step=step)
-  images.append(plot_to_image(fig))
-
-  # Log all images
-  if summary_writer:
-    plot_name = "epidemiology_posterior_samples"
-    plot_name = plot_name + ("" if (eta is None) else f"_eta_{eta:.3f}")
-    summary_writer.image(
-        tag=plot_name,
-        image=normalize_images(images),
-        step=step,
-        max_outputs=len(images),
+  if show_phi_trace:
+    param_name_ = "phi"
+    axs = az.plot_trace(
+        hpv_az,
+        var_names=[param_name_],
+        compact=False,
     )
+    max_ = float(hpv_az.posterior[param_name_].max())
+    for axs_i in axs:
+      axs_i[0].set_xlim([0, max_])
+    plt.tight_layout()
+    if workdir_png:
+      plot_name = f"hpv_{param_name_}_trace"
+      plot_name += suffix
+      plt.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
+    image = plot_to_image(None)
+
+    if summary_writer:
+      plot_name = f"hpv_{param_name_}_trace"
+      plot_name += suffix
+      summary_writer.image(
+          tag=plot_name,
+          image=image,
+          step=step,
+      )
+
+  if show_theta_trace:
+    axs = az.plot_trace(
+        hpv_az,
+        var_names=['theta0', 'theta1'],
+        compact=False,
+    )
+    plt.tight_layout()
+    if workdir_png:
+      plot_name = "hpv_theta_trace"
+      plot_name += suffix
+      plt.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
+    image = plot_to_image(None)
+
+    if summary_writer:
+      plot_name = "hpv_theta_trace"
+      plot_name += suffix
+      summary_writer.image(
+          tag=plot_name,
+          image=image,
+          step=step,
+      )
+
+  if show_theta_pairplot:
+    colour = colour_fader('black', 'gold', (eta if eta is not None else 1.0))
+    n_samples = np.prod(hpv_az.posterior['theta0'].shape[:-1])
+    axs = az.plot_pair(
+        hpv_az,
+        var_names=['theta0', 'theta1'],
+        kind=["scatter"],
+        marginals=True,
+        scatter_kwargs={
+            "color": colour,
+            "alpha": np.clip(100 / n_samples, 0.01, 1.)
+        },
+        marginal_kwargs={
+            "color": colour,
+            'fill_kwargs': {
+                'alpha': 0.10
+            }
+        },
+    )
+    axs[1, 0].set_xlim([-3, -1])
+    axs[1, 0].set_ylim([5, 35])
+    if workdir_png:
+      plot_name = "hpv_theta_pairplot"
+      plot_name += suffix
+      plt.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
+    image = plot_to_image(None)
+
+    if summary_writer:
+      plot_name = "hpv_theta_pairplot"
+      plot_name += suffix
+      summary_writer.image(
+          tag=plot_name,
+          image=image,
+          step=step,
+      )
+
+  if show_loglinear_scatter:
+    loglambda = (
+        hpv_az.posterior['theta0'].values +
+        hpv_az.posterior['theta1'].values * hpv_az.posterior['phi'].values)
+    n_samples = np.prod(loglambda.shape[:-1])
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    for m in range(hpv_az.posterior['phi'].shape[-1]):
+      ax.scatter(
+          hpv_az.posterior['phi'].values[..., m].squeeze(),
+          loglambda[..., m].squeeze(),
+          alpha=np.clip(100 / n_samples, 0.01, 1.),
+          label=f'{m+1}')
+    ax.set_xlim([0, 0.3])
+    ax.set_ylim([-2.5, 2])
+    ax.set_xlabel('phi')
+    ax.set_ylabel('theta_0 + theta_1 * phi')
+    ax.set_title("HPV/Cancer model" +
+                 ("" if eta is None else f"\n eta {eta:.3f}"))
+    leg = ax.legend(
+        title='Group', loc='lower center', ncol=4, fontsize='x-small')
+    for lh in leg.legendHandles:
+      lh.set_alpha(1)
+
+    if workdir_png:
+      plot_name = "hpv_loglinear_scatter"
+      plot_name += suffix
+      fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
+    image = plot_to_image(fig)
+
+    if summary_writer:
+      plot_name = "hpv_loglinear_scatter"
+      plot_name += suffix
+      summary_writer.image(
+          tag=plot_name,
+          image=image,
+          step=step,
+      )

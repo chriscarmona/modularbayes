@@ -37,8 +37,6 @@ RangeInt = Tuple[int, Union[int, None]]
 
 Kernel = tfp.math.psd_kernels.PositiveSemidefiniteKernel
 
-SmiEta = Mapping[str, np.ndarray]
-
 __all__ = [
     'Any',
     'Array',
@@ -67,7 +65,6 @@ __all__ = [
     'Sequence',
     'Scalar',
     'Shape',
-    'SmiEta',
     'SummaryWriter',
     'Tuple',
     'Union',

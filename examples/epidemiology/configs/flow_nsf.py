@@ -7,10 +7,18 @@ def get_config():
   """Get the hyperparameter configuration."""
   config = ml_collections.ConfigDict()
 
+  # Model hyper-parameters, defining the prior.
+  config.prior_hparams = ml_collections.ConfigDict()
+  config.prior_hparams.phi_alpha = 1.
+  config.prior_hparams.phi_beta = 1.
+  config.prior_hparams.theta0_scale = 100.
+  config.prior_hparams.theta1_concentration = 1
+  config.prior_hparams.theta1_rate = 0.1
+
   config.method = 'flow'
 
   # SMI degree of influence
-  config.smi_eta = 1.0
+  config.smi_eta_cancer = 1.0
 
   # Defined in `epidemiology.models.flows`.
   config.flow_name = 'nsf'
@@ -49,7 +57,7 @@ def get_config():
       'staircase': False,
       'end_value': None,
   }
-  
+
   # How often to evaluate the model.
   config.eval_steps = config.training_steps / 10
   config.num_samples_eval = 5_000
@@ -61,7 +69,7 @@ def get_config():
   config.log_img_steps = config.training_steps / 10
 
   # Number of posteriors samples used in the plots.
-  config.num_samples_plot = 10_000
+  config.num_samples_plot = 40_000
 
   config.num_samples_eval = 10_000
 

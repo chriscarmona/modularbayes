@@ -18,8 +18,8 @@ import optax
 from tensorflow_probability.substrates import jax as tfp
 
 import plot
-from train_flow import (load_dataset, sample_all_flows, q_distr_phi,
-                        q_distr_theta, elbo_estimate)
+from train_flow import (load_data, sample_q, sample_q_nocut,
+                        sample_q_cutgivennocut, elbo_estimate)
 
 import modularbayes
 from modularbayes._src.utils.training import TrainState
@@ -232,8 +232,8 @@ def log_images(
   prng_key, key_flow = jax.random.split(prng_key)
 
   # Sample from flow
-  q_distr_out = jax.vmap(lambda params_flow_tuple: sample_all_flows(
-      params_tuple=params_flow_tuple,
+  q_distr_out = jax.vmap(lambda params_flow_tuple: sample_q(
+      lambda_tuple=params_flow_tuple,
       prng_key=key_flow,
       flow_name=config.flow_name,
       flow_kwargs=config.flow_kwargs,
@@ -305,7 +305,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   # Full dataset used everytime
   # Small data, no need to batch
-  train_ds = load_dataset()
+  train_ds = load_data()
 
   # phi_dim and theta_dim are also arguments of the flow,
   # as they define its dimension
@@ -322,7 +322,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   params_flow_init_list = []
 
   params_flow_init_list.append(
-      hk.transform(q_distr_phi).init(
+      hk.transform(sample_q_nocut).init(
           next(prng_seq),
           flow_name=config.flow_name,
           flow_kwargs=config.flow_kwargs,
@@ -331,7 +331,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   # Get an initial sample of phi
   # (used below to initialize beta and tau)
-  phi_base_sample_init = hk.transform(q_distr_phi).apply(
+  phi_base_sample_init = hk.transform(sample_q_nocut).apply(
       params_flow_init_list[0],
       next(prng_seq),
       flow_name=config.flow_name,
@@ -340,7 +340,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   )['phi_base_sample']
 
   params_flow_init_list.append(
-      hk.transform(q_distr_theta).init(
+      hk.transform(sample_q_cutgivennocut).init(
           next(prng_seq),
           flow_name=config.flow_name,
           flow_kwargs=config.flow_kwargs,
@@ -349,7 +349,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       ))
 
   params_flow_init_list.append(
-      hk.transform(q_distr_theta).init(
+      hk.transform(sample_q_cutgivennocut).init(
           next(prng_seq),
           flow_name=config.flow_name,
           flow_kwargs=config.flow_kwargs,

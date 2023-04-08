@@ -7,6 +7,14 @@ def get_config():
   """Get the hyperparameter configuration."""
   config = ml_collections.ConfigDict()
 
+  # Model hyper-parameters, defining the prior.
+  config.prior_hparams = ml_collections.ConfigDict()
+  config.prior_hparams.phi_alpha = 1.
+  config.prior_hparams.phi_beta = 1.
+  config.prior_hparams.theta0_scale = 100.
+  config.prior_hparams.theta1_concentration = 1
+  config.prior_hparams.theta1_rate = 0.1
+
   config.method = 'vmp_flow'
 
   # Defined in `epidemiology.models.flows`.
@@ -61,9 +69,9 @@ def get_config():
   config.log_img_steps = config.training_steps / 10
 
   # Number of posteriors samples used in the plots.
-  config.num_samples_plot = 10_000
+  config.num_samples_plot = 40_000
 
-  config.eta_plot = [[1., 0.001], [1., 0.1], [1., 1.]]
+  config.smi_eta_cancer_plot = (0.001, 0.1, 0.2, 0.5, 1.)
 
   # How often to save model checkpoints.
   config.checkpoint_steps = config.training_steps / 4

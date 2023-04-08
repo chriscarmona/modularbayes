@@ -7,13 +7,42 @@ import distrax
 from tensorflow_probability.substrates import jax as tfp
 
 import modularbayes
-
 from modularbayes._src.typing import Any, Array, Dict, Sequence
+
+from log_prob_fun import ModelParamsCut, ModelParamsNoCut
 
 tfb = tfp.bijectors
 
 
-def mean_field_phi(
+def bijector_domain_nocut() -> distrax.Bijector:
+  """Returns a distrax bijector for the uncut parameters
+  The bijector maps from an unconstrained space to the parameter domain.
+  """
+  # phi goes to [0,1]
+  bij_nocut = distrax.Block(distrax.Sigmoid(), 1)
+  return bij_nocut
+
+
+def bijector_domain_cut() -> distrax.Bijector:
+  """Returns a distrax bijector for the cut parameters
+  The bijector maps from an unconstrained space to the parameter domain.
+  """
+  # theta1 goes to [-Inf,Inf]
+  # theta2 goes to [0,Inf]
+  block_bijectors = [
+      distrax.Block(tfb.Identity(), 1),
+      distrax.Block(tfb.Softplus(), 1),
+  ]
+  block_sizes = [
+      1,
+      1,
+  ]
+  bij_cut = modularbayes.Blockwise(
+      bijectors=block_bijectors, block_sizes=block_sizes)
+  return bij_cut
+
+
+def get_q_nocut_mf(
     phi_dim: int,
     **_,
 ) -> distrax.Transformed:
@@ -31,8 +60,8 @@ def mean_field_phi(
       distrax.Block(distrax.ScalarAffine(shift=loc, log_scale=log_scale), 1))
 
   # Last Layer: Map values to parameter domain
-  # phi goes to [0,1]
-  flow_layers.append(distrax.Block(distrax.Sigmoid(), 1))
+  bij_nocut = bijector_domain_nocut()
+  flow_layers.append(bij_nocut)
 
   # Chain all layers together
   flow = distrax.Chain(flow_layers[::-1])
@@ -45,7 +74,7 @@ def mean_field_phi(
   return q_distr
 
 
-def mean_field_theta(
+def get_q_cutgivennocut_mf(
     theta_dim: int,
     **_,
 ) -> modularbayes.ConditionalTransformed:
@@ -65,19 +94,8 @@ def mean_field_theta(
   # flow_layers.append(tfb.Shift(loc)(tfb.Scale(log_scale=log_scale)))
 
   # Last layer: Map values to parameter domain
-  # theta1 goes to [-Inf,Inf]
-  # theta2 goes to [0,Inf]
-  block_bijectors = [
-      distrax.Block(tfb.Identity(), 1),
-      distrax.Block(tfb.Softplus(), 1),
-  ]
-  block_sizes = [
-      1,
-      1,
-  ]
-  flow_layers.append(
-      modularbayes.Blockwise(
-          bijectors=block_bijectors, block_sizes=block_sizes))
+  bij_cut = bijector_domain_cut()
+  flow_layers.append(bij_cut)
 
   # Chain all layers together
   flow = modularbayes.ConditionalChain(flow_layers[::-1])
@@ -90,7 +108,7 @@ def mean_field_theta(
   return q_distr
 
 
-def nsf_phi(
+def get_q_nocut_nsf(
     phi_dim: int,
     num_layers: int,
     hidden_sizes: Sequence[int],
@@ -131,7 +149,6 @@ def nsf_phi(
   # - `num_bins` bin heights
   # - `num_bins + 1` knot slopes
   # for a total of `3 * num_bins + 1` parameters.
-
   for _ in range(num_layers):
     layer = distrax.MaskedCoupling(
         mask=mask,
@@ -148,8 +165,8 @@ def nsf_phi(
     mask = jnp.logical_not(mask)
 
   # Last layer: Map values to parameter domain
-  # phi goes to [0,1]
-  flow_layers.append(distrax.Block(distrax.Sigmoid(), 1))
+  bij_nocut = bijector_domain_nocut()
+  flow_layers.append(bij_nocut)
 
   flow = distrax.Chain(flow_layers[::-1])
 
@@ -163,7 +180,7 @@ def nsf_phi(
   return modularbayes.Transformed(base_distribution, flow)
 
 
-def nsf_theta(
+def get_q_cutgivennocut_nsf(
     theta_dim: int,
     num_layers: int,
     hidden_sizes: Sequence[int],
@@ -220,19 +237,9 @@ def nsf_theta(
     mask = jnp.logical_not(mask)
 
   # Last layer: Map values to parameter domain
-  # theta1 goes to [-Inf,Inf]
-  # theta2 goes to [0,Inf]
-  block_bijectors = [
-      distrax.Block(tfb.Identity(), 1),
-      distrax.Block(tfb.Softplus(), 1),
-  ]
-  block_sizes = [
-      1,
-      1,
-  ]
-  flow_layers.append(
-      modularbayes.Blockwise(
-          bijectors=block_bijectors, block_sizes=block_sizes))
+  bij_cut = bijector_domain_cut()
+  flow_layers.append(bij_cut)
+
   flow = modularbayes.ConditionalChain(flow_layers[::-1])
 
   # base_distribution = distrax.Independent(
@@ -245,7 +252,7 @@ def nsf_theta(
   return modularbayes.ConditionalTransformed(base_distribution, flow)
 
 
-def meta_nsf_phi(
+def get_q_nocut_meta_nsf(
     phi_dim: int,
     num_layers: int,
     hidden_sizes_conditioner: Sequence[int],
@@ -325,7 +332,7 @@ def meta_nsf_phi(
   return modularbayes.ConditionalTransformed(base_distribution, flow)
 
 
-def meta_nsf_theta(
+def get_q_cut_meta_nsf(
     theta_dim: int,
     num_layers: int,
     hidden_sizes_conditioner: Sequence[int],
@@ -413,8 +420,8 @@ def meta_nsf_theta(
   return q_distr
 
 
-def split_flow_phi(
-    samples: Array,
+def split_flow_nocut(
+    concat_params: Array,
     phi_dim: int,
     **_,
 ) -> Dict[str, Any]:
@@ -422,33 +429,53 @@ def split_flow_phi(
 
   flow_dim = phi_dim
 
-  assert samples.ndim == 2
-  assert samples.shape[-1] == flow_dim
+  assert concat_params.ndim == 1
+  assert concat_params.shape[-1] == flow_dim
 
-  samples_dict = {}
+  model_params_nocut = ModelParamsNoCut(phi=concat_params)
 
-  # phi: Human-Papilloma virus (HPV) prevalence on each population
-  samples_dict['phi'] = samples
-
-  return samples_dict
+  return model_params_nocut
 
 
-def split_flow_theta(
-    samples: Array,
+def split_flow_cut(
+    concat_params: Array,
     theta_dim: int,
-    is_aux: bool,
     **_,
 ) -> Dict[str, Any]:
-  """Get model parameters by splitting samples from the flow."""
-
+  """Get model parameters by splitting samples from the flow.
+  
+  The parameter theta contain the intercept and slope of the
+  prevalence-incidence model.
+  """
   flow_dim = theta_dim
 
-  assert samples.ndim == 2
-  assert samples.shape[-1] == flow_dim
+  assert concat_params.ndim == 1
+  assert concat_params.shape[-1] == flow_dim
+  assert theta_dim == 2
+  theta0, theta1 = jnp.split(concat_params, [1], axis=-1)
 
-  samples_dict = {}
+  model_params_cut = ModelParamsCut(theta0=theta0, theta1=theta1)
 
-  # theta: Intercept and slope of the prevalence-incidence model
-  samples_dict['theta' + ('_aux' if is_aux else '')] = samples
+  return model_params_cut
 
-  return samples_dict
+
+def concat_flow_nocut(
+    model_params: ModelParamsNoCut,
+    **_,
+) -> Dict[str, Any]:
+  """Concatenate model parameters from ModelParamsNoCut into a single array."""
+
+  concat_params = model_params.phi
+  assert concat_params.ndim == 1
+  return concat_params
+
+
+def concat_flow_cut(
+    model_params: ModelParamsNoCut,
+    **_,
+) -> Dict[str, Any]:
+  """Concatenate model parameters from ModelParamsCut into a single array."""
+  concat_params = jnp.concatenate([model_params.theta0, model_params.theta1],
+                                  axis=-1)
+  assert concat_params.ndim == 1
+  return concat_params
