@@ -17,6 +17,7 @@ from modularbayes._src.distributions.transformed import Transformed
 from modularbayes._src.metaposterior.vmp_map import VmpMap
 
 from modularbayes._src.utils.misc import cart2pol
+from modularbayes._src.utils.misc import clean_filename
 from modularbayes._src.utils.misc import colour_fader
 from modularbayes._src.utils.misc import flatten_dict
 from modularbayes._src.utils.misc import list_from_csv
@@ -44,6 +45,7 @@ __all__ = (
     'Transformed',
     'VmpMap',
     'cart2pol',
+    'clean_filename',
     'colour_fader',
     'flatten_dict',
     'list_from_csv',
