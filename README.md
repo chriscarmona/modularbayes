@@ -23,6 +23,7 @@ By executing the `run.sh` bash script in that folder, one can train all variatio
 
 You can customize the output directories within the script and choose the experiments that you wish to run.
 ```bash
+pip install -Ur examples/requirements.txt
 chmod +x examples/run.sh
 bash examples/run.sh
 ```
@@ -38,7 +39,7 @@ tensorboard --logdir=$WORK_DIR
 2. Install JAX. This may vary according to your CUDA version (See [JAX installation](https://github.com/google/jax#installation)).
 3. Install the latest released version of `modularbayes` from [Pypi](https://pypi.org/project/modularbayes/) via:
 ```bash
-pip install modularbayes
+pip install -U modularbayes
 ```
 or you can install the latest development version from GitHub:
 ```bash
@@ -83,6 +84,7 @@ If you find this work relevant for your scientific publication, we encourage you
 For OSX or Linux, you can use `venv` (see the [venv documentation](https://docs.python.org/3/library/venv.html)).
 
 ```bash
+rm -rf ~/.virtualenvs/modularbayes
 python3 -m venv ~/.virtualenvs/modularbayes
 source ~/.virtualenvs/modularbayes/bin/activate
 pip install -U pip
