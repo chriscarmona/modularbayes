@@ -58,7 +58,7 @@ def get_config():
   config.log_img_steps = config.training_steps / 10
 
   # Number of posteriors samples used in the plots.
-  config.num_samples_plot = 10_000
+  config.num_samples_plot = 40_000
 
   config.eta_plot = [[1., 0.001], [1., 0.1], [1., 1.]]
 

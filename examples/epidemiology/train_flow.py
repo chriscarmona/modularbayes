@@ -1,4 +1,4 @@
-"""A simple example of a flow model trained on Epidemiology data."""
+"""Training a Normalizing Flow."""
 import pathlib
 
 from absl import logging
@@ -75,7 +75,7 @@ def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
 
 def sample_q_as_az(
     state_list: List[TrainState],
-    hpv_dataset: Dict[str, Any],
+    dataset: Dict[str, Any],
     prng_key: PRNGKey,
     flow_get_fn_nocut: Callable,
     flow_get_fn_cutgivennocut: Callable,
@@ -105,11 +105,11 @@ def sample_q_as_az(
   model_params_az = jax.tree_map(lambda x: x[None, ...],
                                  q_distr_out['model_params_sample'])
   # Create InferenceData object
-  hpv_az = plot.hpv_az_from_samples(
-      hpv_dataset=hpv_dataset,
+  az_data = plot.arviz_from_samples(
+      dataset=dataset,
       model_params=model_params_az,
   )
-  return hpv_az
+  return az_data
 
 
 def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
@@ -320,17 +320,17 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     if ((state_list[0].step == 0) or
         (state_list[0].step % config.log_img_steps == 0)):
       # print("Logging images...\n")
-      hpv_az = sample_q_as_az(
+      az_data = sample_q_as_az(
           state_list=state_list,
-          hpv_dataset=train_ds,
+          dataset=train_ds,
           prng_key=next(prng_seq),
           flow_get_fn_nocut=flow_get_fn_nocut,
           flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
           flow_kwargs=config.flow_kwargs,
           sample_shape=(config.num_samples_plot,),
       )
-      plot.hpv_plots_arviz(
-          hpv_az=hpv_az,
+      plot.posterior_plots(
+          az_data=az_data,
           show_phi_trace=False,
           show_theta_trace=False,
           show_loglinear_scatter=True,
@@ -409,17 +409,17 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     )
 
   # Last plot of posteriors
-  hpv_az = sample_q_as_az(
+  az_data = sample_q_as_az(
       state_list=state_list,
-      hpv_dataset=train_ds,
+      dataset=train_ds,
       prng_key=next(prng_seq),
       flow_get_fn_nocut=flow_get_fn_nocut,
       flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
       flow_kwargs=config.flow_kwargs,
       sample_shape=(config.num_samples_plot,),
   )
-  plot.hpv_plots_arviz(
-      hpv_az=hpv_az,
+  plot.posterior_plots(
+      az_data=az_data,
       show_phi_trace=False,
       show_theta_trace=False,
       show_loglinear_scatter=True,

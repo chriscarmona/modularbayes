@@ -16,14 +16,13 @@ ModelParams = namedtuple(
     "model_params",
     field_names=('phi', 'theta0', 'theta1'),
 )
-ModelParamsCut = namedtuple(
-    "model_params_cut",
-    field_names=('theta0', 'theta1'),
-)
 ModelParamsNoCut = namedtuple(
     'model_params_nocut',
     field_names=('phi',),
-    # field_names=tuple(set(ModelParams._fields) - set(ModelParamsCut._fields)),
+)
+ModelParamsCut = namedtuple(
+    "model_params_cut",
+    field_names=('theta0', 'theta1'),
 )
 SmiEta = namedtuple(
     "smi_eta",
@@ -115,7 +114,6 @@ def logprob_joint(
     return log_prob_
 
   ### Define priors functions ###
-
   log_prob_phi = distrax.Independent(
       distrax.Beta(
           alpha=prior_hparams['phi_alpha'] * jnp.ones(n_obs),

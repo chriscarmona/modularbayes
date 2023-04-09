@@ -7,7 +7,7 @@ def get_config():
   """Get the hyperparameter configuration."""
   config = ml_collections.ConfigDict()
 
-  # Model hyper-parameters, defining the prior.
+  # Model hyper-parameters, defining the prior
   config.prior_hparams = ml_collections.ConfigDict()
   config.prior_hparams.phi_alpha = 1.
   config.prior_hparams.phi_beta = 1.
@@ -59,7 +59,7 @@ def get_config():
   config.log_img_steps = config.training_steps / 10
 
   # Number of posteriors samples used in the plots.
-  config.num_samples_plot = 10_000
+  config.num_samples_plot = 40_000
 
   # How often to save model checkpoints.
   config.checkpoint_steps = config.training_steps / 4

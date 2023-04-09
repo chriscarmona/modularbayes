@@ -63,7 +63,7 @@ def get_q_nocut_mf(
   bij_nocut = bijector_domain_nocut()
   flow_layers.append(bij_nocut)
 
-  # Chain all layers together
+  # Chain all flow layers together
   flow = distrax.Chain(flow_layers[::-1])
 
   base_distribution = distrax.MultivariateNormalDiag(
@@ -97,7 +97,7 @@ def get_q_cutgivennocut_mf(
   bij_cut = bijector_domain_cut()
   flow_layers.append(bij_cut)
 
-  # Chain all layers together
+  # Chain all flow layers together
   flow = modularbayes.ConditionalChain(flow_layers[::-1])
 
   base_distribution = distrax.MultivariateNormalDiag(
@@ -168,6 +168,7 @@ def get_q_nocut_nsf(
   bij_nocut = bijector_domain_nocut()
   flow_layers.append(bij_nocut)
 
+  # Chain all flow layers together
   flow = distrax.Chain(flow_layers[::-1])
 
   # base_distribution = distrax.Independent(
@@ -240,6 +241,7 @@ def get_q_cutgivennocut_nsf(
   bij_cut = bijector_domain_cut()
   flow_layers.append(bij_cut)
 
+  # Chain all flow layers together
   flow = modularbayes.ConditionalChain(flow_layers[::-1])
 
   # base_distribution = distrax.Independent(
@@ -316,10 +318,11 @@ def get_q_nocut_meta_nsf(
     # Flip the mask after each layer.
     mask = jnp.logical_not(mask)
 
-  # Last layer: Map values to parameter domain
-  # phi goes to [0,1]
-  flow_layers.append(distrax.Block(distrax.Sigmoid(), 1))
+  # Last Layer: Map values to parameter domain
+  bij_nocut = bijector_domain_nocut()
+  flow_layers.append(bij_nocut)
 
+  # Chain all flow layers together
   flow = modularbayes.ConditionalChain(flow_layers[::-1])
 
   # base_distribution = distrax.Independent(
@@ -397,19 +400,10 @@ def get_q_cutgivennocut_meta_nsf(
     mask = jnp.logical_not(mask)
 
   # Last layer: Map values to parameter domain
-  # theta1 goes to [-Inf,Inf]
-  # theta2 goes to [0,Inf]
-  block_bijectors = [
-      distrax.Block(tfb.Identity(), 1),
-      distrax.Block(tfb.Softplus(), 1),
-  ]
-  block_sizes = [
-      1,
-      1,
-  ]
-  flow_layers.append(
-      modularbayes.Blockwise(
-          bijectors=block_bijectors, block_sizes=block_sizes))
+  bij_cut = bijector_domain_cut()
+  flow_layers.append(bij_cut)
+
+  # Chain all flow layers together
   flow = modularbayes.ConditionalChain(flow_layers[::-1])
 
   base_distribution = distrax.MultivariateNormalDiag(
@@ -475,7 +469,6 @@ def concat_flow_cut(
     **_,
 ) -> Dict[str, Any]:
   """Concatenate model parameters from ModelParamsCut into a single array."""
-  concat_params = jnp.concatenate([model_params.theta0, model_params.theta1],
-                                  axis=-1)
+  concat_params = jnp.concatenate(model_params, axis=-1)
   assert concat_params.ndim == 1
   return concat_params

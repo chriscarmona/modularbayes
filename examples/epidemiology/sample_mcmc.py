@@ -1,4 +1,4 @@
-"""MCMC sampling for the HPV model."""
+"""MCMC sampling for the model."""
 
 import os
 
@@ -251,11 +251,11 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
   # Initialize random keys
   prng_seq = hk.PRNGSequence(config.seed)
 
-  # Load and process HPV dataset
-  hpv_dataset = load_data()
+  # Load and process data
+  train_ds = load_data()
 
-  samples_path_stg1 = workdir + 'hpv_stg1_unb_az.nc'
-  samples_path = workdir + 'hpv_az.nc'
+  samples_path_stg1 = workdir + 'mcmc_samples_stg1_unb_az.nc'
+  samples_path = workdir + 'mcmc_samples_az.nc'
 
   # In general, it would be possible to modulate the influence of both modules
   # for now, we only focus on the influence of the cancer module
@@ -267,7 +267,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
 
   if os.path.exists(samples_path):
     logging.info("\t Loading final samples")
-    hpv_az = az.from_netcdf(samples_path)
+    az_data = az.from_netcdf(samples_path)
   else:
     times_data = {}
     times_data['start_sampling'] = time.perf_counter()
@@ -275,7 +275,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     ### Sample First Stage ###
     if os.path.exists(samples_path_stg1):
       logging.info("\t Loading samples for stage 1...")
-      hpv_stg1_unb_az = az.from_netcdf(samples_path_stg1)
+      az_data_stg1_unb_az = az.from_netcdf(samples_path_stg1)
     else:
       logging.info("\t Stage 1...")
 
@@ -283,7 +283,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       @jax.jit
       def logdensity_fn_stg1(model_params):
         logprob_ = logprob_joint_unb(
-            batch=hpv_dataset,
+            batch=train_ds,
             model_params_unb=model_params,
             prior_hparams=config.prior_hparams,
             smi_eta=smi_eta,
@@ -294,7 +294,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       # (vmap to produce one for each MCMC chains)
       model_params_stg1_unb_init = jax.vmap(lambda prng_key: init_param_fn_stg1(
           prng_key=prng_key,
-          num_groups=hpv_dataset['Z'].shape[0],
+          num_groups=train_ds['Z'].shape[0],
       ))(
           jax.random.split(next(prng_seq), config.num_chains))
 
@@ -327,17 +327,18 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       model_params_stg1_unb_samples = jax.tree_map(lambda x: x.swapaxes(0, 1),
                                                    states_stg1.position)
       # Create InferenceData object
-      hpv_stg1_unb_az = plot.hpv_az_from_samples(
-          hpv_dataset=hpv_dataset,
+      az_data_stg1_unb_az = plot.arviz_from_samples(
+          dataset=train_ds,
           model_params=model_params_stg1_unb_samples,
       )
 
       # Save InferenceData object from stage 1
-      hpv_stg1_unb_az.to_netcdf(samples_path_stg1)
+      az_data_stg1_unb_az.to_netcdf(samples_path_stg1)
 
-      logging.info(
-          "\t\t posterior means phi (before transform):  %s",
-          str(jnp.array(hpv_stg1_unb_az.posterior.phi).mean(axis=[0, 1])))
+      logging.info("\t\t posterior means no-cut parameters (before transform):")
+      for k in az_data_stg1_unb_az.posterior:
+        logging.info("\t\t %s: %s", k,
+                     str(az_data_stg1_unb_az.posterior[k].shape))
 
       times_data['end_mcmc_stg_1'] = time.perf_counter()
 
@@ -346,7 +347,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
 
     model_params_condstg2_unb_samples = ModelParamsNoCut(
         **{
-            k: jnp.array(hpv_stg1_unb_az.posterior[k])
+            k: jnp.array(az_data_stg1_unb_az.posterior[k])
             for k in ModelParamsNoCut._fields
         })
 
@@ -358,7 +359,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
           **model_params_cond._asdict(),
       })
       logprob_ = logprob_joint_unb(
-          batch=hpv_dataset,
+          batch=train_ds,
           model_params_unb=model_params_unb,
           prior_hparams=config.prior_hparams,
           smi_eta=None,
@@ -382,7 +383,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
         jax.random.split(next(prng_seq), config.num_chains),
         ModelParamsCut(
             **{
-                k: jnp.array(hpv_stg1_unb_az.posterior[k])[:, 0, ...]
+                k: jnp.array(az_data_stg1_unb_az.posterior[k])[:, 0, ...]
                 for k in ModelParamsCut._fields
             }),
         jax.tree_map(lambda x: x[:, 0, ...], model_params_condstg2_unb_samples),
@@ -416,7 +417,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     # of theta_aux from stage 1
     initial_position_i = ModelParamsCut(
         **{
-            k: jnp.array(hpv_stg1_unb_az.posterior[k])
+            k: jnp.array(az_data_stg1_unb_az.posterior[k])
             [:, :config.num_samples_perchunk_stg2, ...].swapaxes(0, 1)
             for k in ModelParamsCut._fields
         })
@@ -424,7 +425,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     logging.info('\t sampling stage 2...')
     samples_chunks = []
     for i in range(num_chunks_stg2):
-      # Take a chunk of samples from the conditional (fixed) parameters (phi here)
+      # Take a chunk of samples from the conditional (no-cut) parameters
       cond_i = jax.tree_map(
           lambda x: x[:, (i * config.num_samples_perchunk_stg2):(
               (i + 1) * config.num_samples_perchunk_stg2), ...].swapaxes(0, 1),
@@ -466,17 +467,17 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
             }))
 
     # Create InferenceData object
-    hpv_az = plot.hpv_az_from_samples(
-        hpv_dataset=hpv_dataset,
+    az_data = plot.arviz_from_samples(
+        dataset=train_ds,
         model_params=model_params_cut_samples,
     )
     # Save InferenceData object
-    hpv_az.to_netcdf(samples_path)
+    az_data.to_netcdf(samples_path)
 
     for param_name_ in ModelParams._fields:
       logging.info(
           f"\t\t Posterior means {param_name_}: %s",
-          str(jnp.array(hpv_az.posterior[param_name_]).mean(axis=[0, 1])))
+          str(jnp.array(az_data.posterior[param_name_]).mean(axis=[0, 1])))
 
     times_data['end_sampling'] = time.perf_counter()
 
@@ -495,8 +496,8 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
   ### Posterior visualisation with Arviz
 
   logging.info("Plotting results...")
-  plot.hpv_plots_arviz(
-      hpv_az=hpv_az,
+  plot.posterior_plots(
+      az_data=az_data,
       show_phi_trace=True,
       show_theta_trace=True,
       show_loglinear_scatter=True,

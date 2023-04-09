@@ -1,4 +1,4 @@
-"""A simple example of a flow model trained on Epidemiology data."""
+"""Training a Variational Meta-Posterior."""
 import pathlib
 
 from absl import logging
@@ -52,7 +52,7 @@ def log_images(
     state_list: List[TrainState],
     prng_key: PRNGKey,
     config: ConfigDict,
-    hpv_dataset: Dict[str, Any],
+    dataset: Dict[str, Any],
     num_samples_plot: int,
     flow_get_fn_nocut: Callable,
     flow_get_fn_cutgivennocut: Callable,
@@ -75,17 +75,17 @@ def log_images(
         cancer=eta_cancer_i * jnp.ones(num_samples_plot),
     )
     # Sample from flow
-    hpv_az = sample_q_as_az(
+    az_data = sample_q_as_az(
         state_list=state_list,
-        hpv_dataset=hpv_dataset,
+        dataset=dataset,
         prng_key=next(prng_seq),
         flow_get_fn_nocut=flow_get_fn_nocut,
         flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
         flow_kwargs=config.flow_kwargs,
         eta_values=jnp.stack(smi_eta_plot, axis=-1),
     )
-    plot.hpv_plots_arviz(
-        hpv_az=hpv_az,
+    plot.posterior_plots(
+        az_data=az_data,
         show_phi_trace=False,
         show_theta_trace=False,
         show_loglinear_scatter=True,
@@ -317,7 +317,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           state_list=state_list,
           prng_key=next(prng_seq),
           config=config,
-          hpv_dataset=train_ds,
+          dataset=train_ds,
           num_samples_plot=config.num_samples_plot,
           flow_get_fn_nocut=flow_get_fn_nocut,
           flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
@@ -394,7 +394,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       state_list=state_list,
       prng_key=next(prng_seq),
       config=config,
-      hpv_dataset=train_ds,
+      dataset=train_ds,
       num_samples_plot=config.num_samples_plot,
       flow_get_fn_nocut=flow_get_fn_nocut,
       flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
