@@ -16,6 +16,12 @@ from modularbayes._src.distributions.transformed import Transformed
 
 from modularbayes._src.metaposterior.vmp_map import VmpMap
 
+from modularbayes._src.sampling.smi_flow import sample_q_nocut
+from modularbayes._src.sampling.smi_flow import sample_q_cutgivennocut
+from modularbayes._src.sampling.smi_flow import sample_q
+from modularbayes._src.sampling.smi_flow import elbo_estimate
+from modularbayes._src.sampling.smi_flow import elbo_estimate_meta
+
 from modularbayes._src.utils.misc import cart2pol
 from modularbayes._src.utils.misc import clean_filename
 from modularbayes._src.utils.misc import colour_fader
@@ -44,6 +50,11 @@ __all__ = (
     'ConditionalTransformed',
     'Transformed',
     'VmpMap',
+    'sample_q_nocut',
+    'sample_q_cutgivennocut',
+    'sample_q',
+    'elbo_estimate',
+    'elbo_estimate_meta',
     'cart2pol',
     'clean_filename',
     'colour_fader',
