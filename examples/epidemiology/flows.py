@@ -332,7 +332,7 @@ def get_q_nocut_meta_nsf(
   return modularbayes.ConditionalTransformed(base_distribution, flow)
 
 
-def get_q_cut_meta_nsf(
+def get_q_cutgivennocut_meta_nsf(
     theta_dim: int,
     num_layers: int,
     hidden_sizes_conditioner: Sequence[int],

@@ -16,17 +16,18 @@ import haiku as hk
 import optax
 
 import flows
-import log_prob_fun
-from log_prob_fun import ModelParams, ModelParamsCut, SmiEta
+from flows import split_flow_nocut, split_flow_cut
+from log_prob_fun import ModelParams, ModelParamsCut, SmiEta, logprob_joint
 import plot
 import data
 
+from modularbayes import (sample_q_nocut, sample_q_cutgivennocut, sample_q,
+                          elbo_estimate)
 from modularbayes._src.utils.training import TrainState
 from modularbayes import (flatten_dict, initial_state_ckpt, update_states,
                           save_checkpoint)
-from modularbayes._src.typing import (Any, Array, Batch, ConfigDict, Dict,
-                                      IntLike, List, Optional, PRNGKey,
-                                      Sequence, Tuple, Union)
+from modularbayes._src.typing import (Any, Array, Callable, ConfigDict, Dict,
+                                      List, Optional, PRNGKey, Tuple)
 
 # Set high precision for matrix multiplication in jax
 jax.config.update('jax_default_matmul_precision', 'float32')
@@ -60,205 +61,6 @@ def make_optimizer(
   return optimizer
 
 
-def sample_q_nocut(
-    flow_name: str,
-    flow_kwargs: Dict[str, Any],
-    sample_shape: Union[IntLike, Sequence[IntLike]],
-) -> Dict[str, Any]:
-  """Sample from variational posterior for no-cut parameters."""
-
-  q_output = {}
-
-  # Define normalizing flows
-  q_distr = getattr(flows, 'get_q_nocut_' + flow_name)(**flow_kwargs)
-
-  # Sample from flows
-  (sample_flow_concat, sample_logprob,
-   sample_base) = q_distr.sample_and_log_prob_with_base(
-       seed=hk.next_rng_key(),
-       sample_shape=sample_shape,
-   )
-
-  # Split flow into model parameters
-  q_output['sample'] = jax.vmap(lambda x: flows.split_flow_nocut(
-      concat_params=x,
-      **flow_kwargs,
-  ))(
-      sample_flow_concat)
-
-  # sample from base distribution that generated phi
-  q_output['sample_base'] = sample_base
-
-  # variational posterior evaluated in the sample
-  q_output['sample_logprob'] = sample_logprob
-
-  return q_output
-
-
-def sample_q_cutgivennocut(
-    flow_name: str,
-    flow_kwargs: Dict[str, Any],
-    nocut_base_sample: Array,
-) -> Dict[str, Any]:
-  """Sample from variational posterior for cut parameters
-  Conditional on values of no-cut parameters."""
-
-  q_output = {}
-
-  num_samples = nocut_base_sample.shape[0]
-
-  # Define normalizing flows
-  q_distr = getattr(flows, 'get_q_cutgivennocut_' + flow_name)(**flow_kwargs)
-
-  # Sample from flows
-  (sample, sample_logprob) = q_distr.sample_and_log_prob(
-      seed=hk.next_rng_key(),
-      sample_shape=(num_samples,),
-      context=nocut_base_sample,
-  )
-
-  # Split flow into model parameters
-  q_output['sample'] = jax.vmap(lambda x: flows.split_flow_cut(
-      concat_params=x,
-      **flow_kwargs,
-  ))(
-      sample)
-
-  # log P(theta|phi)
-  q_output['sample_logprob'] = sample_logprob
-
-  return q_output
-
-
-def sample_q(
-    lambda_tuple: Tuple[hk.Params],
-    prng_key: PRNGKey,
-    flow_name: str,
-    flow_kwargs: Dict[str, Any],
-    sample_shape: Union[IntLike, Sequence[IntLike]],
-) -> Dict[str, Any]:
-  """Sample from model posterior"""
-
-  prng_seq = hk.PRNGSequence(prng_key)
-
-  q_output = {}
-
-  # Sample from q(no_cut_params)
-  q_output_nocut_ = hk.transform(sample_q_nocut).apply(
-      lambda_tuple[0],
-      next(prng_seq),
-      flow_name=flow_name,
-      flow_kwargs=flow_kwargs,
-      sample_shape=sample_shape,
-  )
-
-  # Sample from q(cut_params|no_cut_params)
-  q_output_cut_ = hk.transform(sample_q_cutgivennocut).apply(
-      lambda_tuple[1],
-      next(prng_seq),
-      flow_name=flow_name,
-      flow_kwargs=flow_kwargs,
-      nocut_base_sample=q_output_nocut_['sample_base'],
-  )
-
-  q_output['model_params_sample'] = ModelParams(**{
-      **q_output_nocut_['sample']._asdict(),
-      **q_output_cut_['sample']._asdict(),
-  })
-  q_output['log_q_nocut'] = q_output_nocut_['sample_logprob']
-  q_output['log_q_cut'] = q_output_cut_['sample_logprob']
-
-  if flow_kwargs.is_smi:
-    q_output_cut_aux_ = hk.transform(sample_q_cutgivennocut).apply(
-        lambda_tuple[2],
-        next(prng_seq),
-        flow_name=flow_name,
-        flow_kwargs=flow_kwargs,
-        nocut_base_sample=q_output_nocut_['sample_base'],
-    )
-    q_output['model_params_aux_sample'] = ModelParams(
-        **{
-            **q_output_nocut_['sample']._asdict(),
-            **q_output_cut_aux_['sample']._asdict(),
-        })
-    q_output['log_q_cut_aux'] = q_output_cut_aux_['sample_logprob']
-
-  return q_output
-
-
-def elbo_estimate(
-    params_tuple: Tuple[hk.Params],
-    batch: Batch,
-    prng_key: PRNGKey,
-    num_samples: int,
-    flow_name: str,
-    flow_kwargs: Dict[str, Any],
-    prior_hparams: Dict[str, float],
-    smi_eta: Optional[SmiEta] = None,
-) -> Dict[str, Array]:
-  """Estimate ELBO
-
-  Monte Carlo estimate of ELBO for the two stages of variational SMI.
-  Incorporates the stop_gradient operator for the secong stage.
-  """
-
-  # Sample from flow
-  q_distr_out = sample_q(
-      lambda_tuple=params_tuple,
-      prng_key=prng_key,
-      flow_name=flow_name,
-      flow_kwargs=flow_kwargs,
-      sample_shape=(num_samples,),
-  )
-
-  is_smi = False if smi_eta is None else True
-
-  # ELBO stage 1: Power posterior
-  if is_smi:
-    log_prob_joint_stg1 = jax.vmap(lambda x: log_prob_fun.logprob_joint(
-        batch=batch,
-        model_params=x,
-        prior_hparams=prior_hparams,
-        smi_eta=smi_eta,
-    ))(
-        q_distr_out['model_params_aux_sample'])
-    log_q_stg1 = (q_distr_out['log_q_nocut'] + q_distr_out['log_q_cut_aux'])
-
-    elbo_stg1 = log_prob_joint_stg1 - log_q_stg1
-  else:
-    elbo_stg1 = 0.
-
-  # ELBO stage 2: Conventional posterior (with stop_gradient)
-  if is_smi:
-    model_params_stg2 = ModelParams(
-        **{
-            k: (v if k in ModelParamsCut._fields else jax.lax.stop_gradient(v))
-            for k, v in q_distr_out['model_params_sample']._asdict().items()
-        })
-  else:
-    model_params_stg2 = q_distr_out['model_params_sample']
-
-  log_prob_joint_stg2 = jax.vmap(lambda x: log_prob_fun.logprob_joint(
-      batch=batch,
-      model_params=x,
-      prior_hparams=prior_hparams,
-      smi_eta=None,
-  ))(
-      model_params_stg2)
-  if is_smi:
-    log_q_stg2 = (
-        jax.lax.stop_gradient(q_distr_out['log_q_nocut']) +
-        q_distr_out['log_q_cut'])
-  else:
-    log_q_stg2 = (q_distr_out['log_q_nocut'] + q_distr_out['log_q_cut'])
-
-  elbo_stg2 = log_prob_joint_stg2 - log_q_stg2
-
-  elbo_dict = {'stage_1': elbo_stg1, 'stage_2': elbo_stg2}
-
-  return elbo_dict
-
-
 def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
   """Define training loss function."""
 
@@ -275,18 +77,29 @@ def sample_q_as_az(
     state_list: List[TrainState],
     hpv_dataset: Dict[str, Any],
     prng_key: PRNGKey,
-    flow_name: str,
+    flow_get_fn_nocut: Callable,
+    flow_get_fn_cutgivennocut: Callable,
     flow_kwargs: Dict[str, Any],
-    num_samples: int,
+    sample_shape: Optional[Tuple[int]] = None,
+    eta_values: Optional[Array] = None,
 ) -> InferenceData:
   """Plots to monitor during training."""
+  assert sample_shape is not None or eta_values is not None, (
+      'Either sample_shape or eta_values must be provided.')
+  assert sample_shape is None or eta_values is None, (
+      'Only one of sample_shape or eta_values must be provided.')
   # Sample from flow
   q_distr_out = sample_q(
       lambda_tuple=[state.params for state in state_list],
       prng_key=prng_key,
-      flow_name=flow_name,
+      flow_get_fn_nocut=flow_get_fn_nocut,
+      flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
       flow_kwargs=flow_kwargs,
-      sample_shape=(num_samples,),
+      model_params_tupleclass=ModelParams,
+      split_flow_fn_nocut=split_flow_nocut,
+      split_flow_fn_cut=split_flow_cut,
+      sample_shape=sample_shape,
+      eta_values=eta_values,
   )
   # Add dimension for "chains"
   model_params_az = jax.tree_map(lambda x: x[None, ...],
@@ -296,7 +109,6 @@ def sample_q_as_az(
       hpv_dataset=hpv_dataset,
       model_params=model_params_az,
   )
-
   return hpv_az
 
 
@@ -343,6 +155,12 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   else:
     summary_writer = None
 
+  # Functions that generate the NF for no-cut params
+  flow_get_fn_nocut = getattr(flows, 'get_q_nocut_' + config.flow_name)
+  # Functions that generate the NF for cut params (conditional on no-cut params)
+  flow_get_fn_cutgivennocut = getattr(flows,
+                                      'get_q_cutgivennocut_' + config.flow_name)
+
   checkpoint_dir = str(pathlib.Path(workdir) / 'checkpoints')
   state_list = []
   state_name_list = []
@@ -351,23 +169,24 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   state_list.append(
       initial_state_ckpt(
           checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
-          forward_fn=hk.transform(sample_q_nocut),
+          forward_fn=sample_q_nocut,
           forward_fn_kwargs={
-              'flow_name': config.flow_name,
+              'flow_get_fn': flow_get_fn_nocut,
               'flow_kwargs': config.flow_kwargs,
-              'sample_shape': (config.num_samples_elbo,)
+              'split_flow_fn': split_flow_nocut,
+              'sample_shape': (config.num_samples_elbo,),
           },
           prng_key=next(prng_seq),
           optimizer=make_optimizer(**config.optim_kwargs),
       ))
 
   # Get an initial sample of the base distribution of nocut params
-  # (used below to initialize theta)
-  nocut_base_sample_init = hk.transform(sample_q_nocut).apply(
+  nocut_base_sample_init = sample_q_nocut.apply(
       state_list[0].params,
       next(prng_seq),
-      flow_name=config.flow_name,
+      flow_get_fn=flow_get_fn_nocut,
       flow_kwargs=config.flow_kwargs,
+      split_flow_fn=split_flow_nocut,
       sample_shape=(config.num_samples_elbo,),
   )['sample_base']
 
@@ -375,10 +194,11 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   state_list.append(
       initial_state_ckpt(
           checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
-          forward_fn=hk.transform(sample_q_cutgivennocut),
+          forward_fn=sample_q_cutgivennocut,
           forward_fn_kwargs={
-              'flow_name': config.flow_name,
+              'flow_get_fn': flow_get_fn_cutgivennocut,
               'flow_kwargs': config.flow_kwargs,
+              'split_flow_fn': split_flow_cut,
               'nocut_base_sample': nocut_base_sample_init,
           },
           prng_key=next(prng_seq),
@@ -389,10 +209,11 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     state_list.append(
         initial_state_ckpt(
             checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
-            forward_fn=hk.transform(sample_q_cutgivennocut),
+            forward_fn=sample_q_cutgivennocut,
             forward_fn_kwargs={
-                'flow_name': config.flow_name,
+                'flow_get_fn': flow_get_fn_cutgivennocut,
                 'flow_kwargs': config.flow_kwargs,
+                'split_flow_fn': split_flow_cut,
                 'nocut_base_sample': nocut_base_sample_init,
             },
             prng_key=next(prng_seq),
@@ -402,11 +223,12 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   # Print a useful summary of the execution of the flow architecture.
   logging.info('\nFlow no-cut parameters:\n')
   tabulate_fn_ = hk.experimental.tabulate(
-      f=lambda params, prng_key: hk.transform(sample_q_nocut).apply(
+      f=lambda params, prng_key: sample_q_nocut.apply(
           params,
           prng_key,
-          flow_name=config.flow_name,
+          flow_get_fn=flow_get_fn_nocut,
           flow_kwargs=config.flow_kwargs,
+          split_flow_fn=split_flow_nocut,
           sample_shape=(config.num_samples_elbo,),
       ),
       columns=(
@@ -423,11 +245,12 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   logging.info('\nFlow cut parameters:\n')
   tabulate_fn_ = hk.experimental.tabulate(
-      f=lambda params, prng_key: hk.transform(sample_q_cutgivennocut).apply(
+      f=lambda params, prng_key: sample_q_cutgivennocut.apply(
           params,
           prng_key,
-          flow_name=config.flow_name,
+          flow_get_fn=flow_get_fn_cutgivennocut,
           flow_kwargs=config.flow_kwargs,
+          split_flow_fn=split_flow_cut,
           nocut_base_sample=nocut_base_sample_init,
       ),
       columns=(
@@ -453,9 +276,15 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         loss_fn=loss,
         loss_fn_kwargs={
             'num_samples': config.num_samples_elbo,
-            'flow_name': config.flow_name,
+            'logprob_joint_fn': logprob_joint,
+            'flow_get_fn_nocut': flow_get_fn_nocut,
+            'flow_get_fn_cutgivennocut': flow_get_fn_cutgivennocut,
             'flow_kwargs': config.flow_kwargs,
             'prior_hparams': config.prior_hparams,
+            'model_params_tupleclass': ModelParams,
+            'model_params_cut_tupleclass': ModelParamsCut,
+            'split_flow_fn_nocut': split_flow_nocut,
+            'split_flow_fn_cut': split_flow_cut,
             'smi_eta': smi_eta,
         },
     )
@@ -463,13 +292,19 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   @jax.jit
   def elbo_validation_jit(state_list, batch, prng_key, smi_eta):
     return elbo_estimate(
-        params_tuple=[state.params for state in state_list],
+        params_tuple=tuple(state.params for state in state_list),
         batch=batch,
         prng_key=prng_key,
         num_samples=config.num_samples_eval,
-        flow_name=config.flow_name,
+        logprob_joint_fn=logprob_joint,
+        flow_get_fn_nocut=flow_get_fn_nocut,
+        flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
         flow_kwargs=config.flow_kwargs,
         prior_hparams=config.prior_hparams,
+        model_params_tupleclass=ModelParams,
+        model_params_cut_tupleclass=ModelParamsCut,
+        split_flow_fn_nocut=split_flow_nocut,
+        split_flow_fn_cut=split_flow_cut,
         smi_eta=smi_eta,
     )
 
@@ -489,9 +324,10 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           state_list=state_list,
           hpv_dataset=train_ds,
           prng_key=next(prng_seq),
-          flow_name=config.flow_name,
+          flow_get_fn_nocut=flow_get_fn_nocut,
+          flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
           flow_kwargs=config.flow_kwargs,
-          num_samples=config.num_samples_plot,
+          sample_shape=(config.num_samples_plot,),
       )
       plot.hpv_plots_arviz(
           hpv_az=hpv_az,
@@ -577,9 +413,10 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       state_list=state_list,
       hpv_dataset=train_ds,
       prng_key=next(prng_seq),
-      flow_name=config.flow_name,
+      flow_get_fn_nocut=flow_get_fn_nocut,
+      flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
       flow_kwargs=config.flow_kwargs,
-      num_samples=config.num_samples_plot,
+      sample_shape=(config.num_samples_plot,),
   )
   plot.hpv_plots_arviz(
       hpv_az=hpv_az,
