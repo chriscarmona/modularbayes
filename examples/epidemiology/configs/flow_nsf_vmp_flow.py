@@ -71,6 +71,7 @@ def get_config():
   # Number of posteriors samples used in the plots.
   config.num_samples_plot = 40_000
 
+  config.smi_eta_dim = 2
   config.smi_eta_cancer_plot = (0.001, 0.1, 0.2, 0.5, 1.)
 
   # How often to save model checkpoints.

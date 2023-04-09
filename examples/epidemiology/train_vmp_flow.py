@@ -70,7 +70,7 @@ def log_images(
   # Plot posterior samples
   for eta_cancer_i in config.smi_eta_cancer_plot:
     # Define eta with a single value
-    smi_eta_plot = SmiEta(
+    smi_etas = SmiEta(
         hpv=jnp.ones(num_samples_plot),
         cancer=eta_cancer_i * jnp.ones(num_samples_plot),
     )
@@ -82,7 +82,8 @@ def log_images(
         flow_get_fn_nocut=flow_get_fn_nocut,
         flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
         flow_kwargs=config.flow_kwargs,
-        eta_values=jnp.stack(smi_eta_plot, axis=-1),
+        eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
+            smi_etas, axis=-1)),
     )
     plot.posterior_plots(
         az_data=az_data,
@@ -153,10 +154,14 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
           forward_fn=sample_q_nocut,
           forward_fn_kwargs={
-              'flow_get_fn': flow_get_fn_nocut,
-              'flow_kwargs': config.flow_kwargs,
-              'split_flow_fn': split_flow_nocut,
-              'eta_values': jnp.ones((config.num_samples_elbo, 2)),
+              'flow_get_fn':
+                  flow_get_fn_nocut,
+              'flow_kwargs':
+                  config.flow_kwargs,
+              'split_flow_fn':
+                  split_flow_nocut,
+              'eta_values':
+                  jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
           },
           prng_key=next(prng_seq),
           optimizer=make_optimizer(**config.optim_kwargs),
@@ -169,7 +174,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       flow_get_fn=flow_get_fn_nocut,
       flow_kwargs=config.flow_kwargs,
       split_flow_fn=split_flow_nocut,
-      eta_values=jnp.ones((config.num_samples_elbo, 2)),
+      eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
   )['sample_base']
 
   state_name_list.append('lambda_cut')
@@ -178,11 +183,16 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
           forward_fn=sample_q_cutgivennocut,
           forward_fn_kwargs={
-              'flow_get_fn': flow_get_fn_cutgivennocut,
-              'flow_kwargs': config.flow_kwargs,
-              'split_flow_fn': split_flow_cut,
-              'nocut_base_sample': nocut_base_sample_init,
-              'eta_values': jnp.ones((config.num_samples_elbo, 2)),
+              'flow_get_fn':
+                  flow_get_fn_cutgivennocut,
+              'flow_kwargs':
+                  config.flow_kwargs,
+              'split_flow_fn':
+                  split_flow_cut,
+              'nocut_base_sample':
+                  nocut_base_sample_init,
+              'eta_values':
+                  jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
           },
           prng_key=next(prng_seq),
           optimizer=make_optimizer(**config.optim_kwargs),
@@ -194,11 +204,16 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
             checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
             forward_fn=sample_q_cutgivennocut,
             forward_fn_kwargs={
-                'flow_get_fn': flow_get_fn_cutgivennocut,
-                'flow_kwargs': config.flow_kwargs,
-                'split_flow_fn': split_flow_cut,
-                'nocut_base_sample': nocut_base_sample_init,
-                'eta_values': jnp.ones((config.num_samples_elbo, 2)),
+                'flow_get_fn':
+                    flow_get_fn_cutgivennocut,
+                'flow_kwargs':
+                    config.flow_kwargs,
+                'split_flow_fn':
+                    split_flow_cut,
+                'nocut_base_sample':
+                    nocut_base_sample_init,
+                'eta_values':
+                    jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
             },
             prng_key=next(prng_seq),
             optimizer=make_optimizer(**config.optim_kwargs),
@@ -213,7 +228,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           flow_get_fn=flow_get_fn_nocut,
           flow_kwargs=config.flow_kwargs,
           split_flow_fn=split_flow_nocut,
-          eta_values=jnp.ones((config.num_samples_elbo, 2)),
+          eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
       ),
       columns=(
           "module",
@@ -236,7 +251,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           flow_kwargs=config.flow_kwargs,
           split_flow_fn=split_flow_cut,
           nocut_base_sample=nocut_base_sample_init,
-          eta_values=jnp.ones((config.num_samples_elbo, 2)),
+          eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
       ),
       columns=(
           "module",

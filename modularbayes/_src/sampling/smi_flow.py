@@ -286,7 +286,8 @@ def elbo_estimate_meta(
       model_params_tupleclass=model_params_tupleclass,
       split_flow_fn_nocut=split_flow_fn_nocut,
       split_flow_fn_cut=split_flow_fn_cut,
-      eta_values=jnp.stack(smi_etas, axis=-1),
+      eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
+          smi_etas, axis=-1)),
   )
 
   # ELBO stage 1: Power posterior
