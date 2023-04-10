@@ -13,18 +13,20 @@ def get_config():
   config.loc_groups = [10., 5.] + [0. for _ in range(config.num_groups - 2)]
   config.scale_groups = [1. for _ in range(config.num_groups)]
 
+  # Model hyper-parameters, defining the prior.
+  config.prior_hparams = None
+
   config.method = 'mcmc'
 
-  # MCMC
-  config.num_samples = 10000
-  config.num_samples_subchain = 100
-  config.num_burnin_steps = 2000
-  config.mcmc_step_size = 0.01
+  config.num_chains = 4
+  config.num_samples = 10_000
+  config.num_samples_subchain_stg2 = 50
+  config.num_samples_perchunk_stg2 = 1_000
+  config.num_steps_call_warmup = 100
 
-  config.smi_eta = {
-      'groups': [1., 0.001] + [1. for _ in range(config.num_groups - 2)],
-  }
-  config.plot_suffix = 'cut3'
+  config.smi_eta_groups = [1., 0.001
+                          ] + [1. for _ in range(config.num_groups - 2)]
+  config.plot_suffix = '_cut3'
 
   config.seed = 0
 

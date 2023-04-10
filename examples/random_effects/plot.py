@@ -1,187 +1,208 @@
-"""Plot methods for the random effects model."""
+"""Plot methods for the epidemiology model."""
 
-import pathlib
+from typing import Dict, Any, Mapping, Optional, Tuple
 import warnings
 
-import math
+import pathlib
+
 import numpy as np
 import pandas as pd
 
-import seaborn as sns
-from seaborn import JointGrid
+from matplotlib import pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.axes import Axes
+
+import arviz as az
+from arviz import InferenceData
 
 from modularbayes import plot_to_image, normalize_images
-from modularbayes._src.typing import (Any, Array, Dict, Optional, SummaryWriter,
-                                      Tuple)
+
+from modularbayes._src.typing import SummaryWriter
+
+from log_prob_fun import ModelParams
 
 
-def plot_beta_sigma(
-    beta: Array,
-    sigma: Array,
-    group: int = 1,
-    suffix: Optional[str] = None,
-    xlim: Optional[Tuple[int]] = None,
-    ylim: Optional[Tuple[int]] = None,
-) -> JointGrid:
+def arviz_from_samples(
+    dataset: Dict[str, Any],
+    model_params: ModelParams,
+) -> InferenceData:
+  """Converts a samples to an ArviZ InferenceData object.
 
-  num_samples, num_groups = sigma.shape
+  Returns:
+    ArviZ InferenceData object.
+  """
+  num_groups = len(dataset['num_obs_groups'])
+  assert model_params.sigma.ndim == 3 and (
+      model_params.sigma.shape[0] < model_params.sigma.shape[1]), (
+          "Arrays in model_params_global" +
+          "are expected to have shapes: (num_chains, num_samples, ...)")
 
-  posterior_samples_df = pd.DataFrame(
-      np.concatenate([sigma, beta], axis=-1),
-      columns=[f"sigma_{i}" for i in range(1, num_groups + 1)] +
-      [f"beta_{i}" for i in range(1, num_groups + 1)],
+  samples_dict = model_params._asdict()
+  assert samples_dict['beta'].shape[-1] == num_groups
+  assert samples_dict['sigma'].shape[-1] == num_groups
+
+  coords_ = {
+      "groups": range(num_groups),
+  }
+  dims_ = {
+      "beta": ["groups"],
+      "sigma": ["groups"],
+  }
+
+  az_data = az.convert_to_inference_data(
+      samples_dict,
+      coords=coords_,
+      dims=dims_,
   )
-  # fig, ax = plt.subplots(figsize=(10, 10))
-  pars = {'alpha': np.clip(500 / num_samples, 0., 1.), 'colour': 'blue'}
 
-  warnings.simplefilter(action='ignore', category=FutureWarning)
-  grid = sns.JointGrid(
-      x=f'beta_{group}',
-      y=f'sigma_{group}',
-      data=posterior_samples_df,
-      xlim=xlim,
-      ylim=ylim,
-      height=5)
-  g = grid.plot_joint(
-      sns.scatterplot,
-      data=posterior_samples_df,
-      alpha=pars['alpha'],
-      color=pars['colour'])
-  sns.kdeplot(
-      x=posterior_samples_df[f'beta_{group}'],
-      ax=g.ax_marg_x,
-      shade=True,
-      color=pars['colour'],
-      legend=False)
-  sns.kdeplot(
-      y=posterior_samples_df[f'sigma_{group}'],
-      ax=g.ax_marg_y,
-      shade=True,
-      color=pars['colour'],
-      legend=False)
-  # Add title
-  g.fig.subplots_adjust(top=0.9)
-  g.fig.suptitle("Random effects model" +
-                 ('' if suffix is None else f" ({suffix})"))
-
-  return grid
+  return az_data
 
 
-def plot_tau_sigma(
-    tau: Array,
-    sigma: Array,
-    group: int = 1,
-    suffix: Optional[str] = None,
-    xlim: Optional[Tuple[int]] = None,
-    ylim: Optional[Tuple[int]] = None,
-) -> JointGrid:
-
-  num_samples, num_groups = sigma.shape
-
-  posterior_samples_df = pd.DataFrame(
-      np.concatenate([sigma, tau], axis=-1),
-      columns=[f"sigma_{i}" for i in range(1, num_groups + 1)] + ['tau'],
-  )
-  # fig, ax = plt.subplots(figsize=(10, 10))
-  pars = {'alpha': np.clip(500 / num_samples, 0., 1.), 'colour': 'blue'}
-
-  warnings.simplefilter(action='ignore', category=FutureWarning)
-  grid = sns.JointGrid(
-      x='tau',
-      y=f'sigma_{group}',
-      data=posterior_samples_df,
-      xlim=xlim,
-      ylim=ylim,
-      height=5,
-  )
-  g = grid.plot_joint(
-      sns.scatterplot,
-      data=posterior_samples_df,
-      alpha=pars['alpha'],
-      color=pars['colour'])
-  sns.kdeplot(
-      posterior_samples_df['tau'],
-      ax=g.ax_marg_x,
-      shade=True,
-      color=pars['colour'],
-      legend=False)
-  sns.kdeplot(
-      posterior_samples_df[f'sigma_{group}'],
-      ax=g.ax_marg_y,
-      shade=True,
-      color=pars['colour'],
-      legend=False,
-      vertical=True)
-  # Add title
-  g.fig.subplots_adjust(top=0.9)
-  g.fig.suptitle("Random effects model" +
-                 ('' if suffix is None else f" ({suffix})"))
-
-  return grid
-
-
-def posterior_samples(
-    posterior_sample_dict: Dict[str, Any],
-    step: int,
-    summary_writer: Optional[SummaryWriter] = None,
-    suffix: Optional[str] = None,
+def posterior_plots(
+    az_data: InferenceData,
+    show_sigma_trace: bool,
+    show_beta_trace: bool,
+    show_tau_trace: bool,
+    betasigma_pairplot_groups: Optional[Tuple[int]] = None,
+    tausigma_pairplot_groups: Optional[Tuple[int]] = None,
+    suffix: str = '',
+    step: Optional[int] = 0,
     workdir_png: Optional[str] = None,
+    summary_writer: Optional[SummaryWriter] = None,
 ) -> None:
-  """Plot posteriors samples."""
-
-  images = []
-
-  # Plot relation: sigma vs beta
-  for group in [1, 2, 3]:
-    plot_name = f"rnd_eff_beta_sigma_group_{group}"
-    plot_name = plot_name + ("" if (suffix is None) else ("_" + suffix))
-    grid = plot_beta_sigma(
-        beta=posterior_sample_dict['beta'],
-        sigma=posterior_sample_dict['sigma'],
-        group=group,
-        suffix=suffix,
-        xlim=(-3, 12),
-        ylim=(0, 20),
+  model_name = 'random_effects'
+  if show_sigma_trace:
+    param_name_ = "sigma"
+    axs = az.plot_trace(
+        az_data,
+        var_names=[param_name_],
+        compact=False,
     )
-    fig = grid.fig
+    max_ = float(az_data.posterior[param_name_].max())
+    for axs_i in axs:
+      axs_i[0].set_xlim([0, max_])
+    plt.tight_layout()
     if workdir_png:
-      fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
-    # summary_writer.image(plot_name, images[-1], step=step)
-    images.append(plot_to_image(fig))
+      plot_name = f"{model_name}_{param_name_}_trace"
+      plot_name += suffix
+      plt.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
+    image = plot_to_image(None)
 
-  # Plot relation: sigma vs tau, group 1
-  plot_name = "rnd_eff_sigma_tau_group_1"
-  plot_name = plot_name + ("" if (suffix is None) else ("_" + suffix))
-  grid = plot_tau_sigma(
-      tau=posterior_sample_dict['tau'],
-      sigma=posterior_sample_dict['sigma'],
-      group=1,
-      suffix=suffix,
-      xlim=(0, 4),
-      ylim=(0, 20),
-  )
-  fig = grid.fig
-  if workdir_png:
-    fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
-  # summary_writer.image(plot_name, plot_to_image(fig), step=step)
-  images.append(plot_to_image(fig))
+    if summary_writer:
+      plot_name = f"{model_name}_{param_name_}_trace"
+      plot_name += suffix
+      summary_writer.image(
+          tag=plot_name,
+          image=image,
+          step=step,
+      )
 
-  # Same height and width in all images
-  h, w = max([x.shape[1] for x in images]), max([x.shape[2] for x in images])
-  for i, img in enumerate(images):
-    h_pad = (h - img.shape[1]) / 2
-    h_pad = math.floor(h_pad), math.ceil(h_pad)
-    w_pad = (w - img.shape[2]) / 2
-    w_pad = math.floor(w_pad), math.ceil(w_pad)
-    images[i] = np.pad(img, ((0, 0), h_pad, w_pad, (0, 0)), mode='constant')
-
-  # Log all images
-  if summary_writer:
-    plot_name = "rnd_eff_posterior_samples"
-    plot_name = plot_name + ("" if (suffix is None) else ("_" + suffix))
-    summary_writer.image(
-        tag=plot_name,
-        image=normalize_images(images),
-        step=step,
-        max_outputs=len(images),
+  if show_beta_trace:
+    param_name_ = "beta"
+    axs = az.plot_trace(
+        az_data,
+        var_names=[param_name_],
+        compact=False,
     )
+    max_ = float(az_data.posterior[param_name_].max())
+    for axs_i in axs:
+      axs_i[0].set_xlim([0, max_])
+    plt.tight_layout()
+    if workdir_png:
+      plot_name = f"{model_name}_{param_name_}_trace"
+      plot_name += suffix
+      plt.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
+    image = plot_to_image(None)
+
+    if summary_writer:
+      plot_name = f"{model_name}_{param_name_}_trace"
+      plot_name += suffix
+      summary_writer.image(
+          tag=plot_name,
+          image=image,
+          step=step,
+      )
+
+  if show_tau_trace:
+    param_name_ = "tau"
+    axs = az.plot_trace(
+        az_data,
+        var_names=[param_name_],
+        compact=False,
+    )
+    max_ = float(az_data.posterior[param_name_].max())
+    for axs_i in axs:
+      axs_i[0].set_xlim([0, max_])
+    plt.tight_layout()
+    if workdir_png:
+      plot_name = f"{model_name}_{param_name_}_trace"
+      plot_name += suffix
+      plt.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
+    image = plot_to_image(None)
+
+    if summary_writer:
+      plot_name = f"{model_name}_{param_name_}_trace"
+      plot_name += suffix
+      summary_writer.image(
+          tag=plot_name,
+          image=image,
+          step=step,
+      )
+
+  if betasigma_pairplot_groups is not None:
+    images = []
+    n_samples = np.prod(az_data.posterior['tau'].shape[:2])
+    for group_i in betasigma_pairplot_groups:
+      axs = az.plot_pair(
+          az_data,
+          var_names=['beta', 'sigma'],
+          coords={"groups": group_i},
+          kind=["scatter"],
+          marginals=True,
+          scatter_kwargs={"alpha": np.clip(100 / n_samples, 0.01, 1.)},
+          marginal_kwargs={'fill_kwargs': {
+              'alpha': 0.10
+          }},
+      )
+      axs[1, 0].set_xlim([-3, 12])
+      axs[1, 0].set_ylim([0, 20])
+      plt.suptitle(f"group : {group_i}")
+      images.append(plot_to_image(None))
+    if summary_writer:
+      plot_name = f"{model_name}_beta_sigma_pairplot"
+      plot_name += suffix
+      summary_writer.image(
+          tag=plot_name,
+          image=normalize_images(images),
+          step=step,
+          max_outputs=len(images),
+      )
+
+  if tausigma_pairplot_groups is not None:
+    images = []
+    n_samples = np.prod(az_data.posterior['tau'].shape[:2])
+    for group_i in tausigma_pairplot_groups:
+      axs = az.plot_pair(
+          az_data,
+          var_names=['tau', 'sigma'],
+          coords={"groups": group_i},
+          kind=["scatter"],
+          marginals=True,
+          scatter_kwargs={"alpha": np.clip(100 / n_samples, 0.01, 1.)},
+          marginal_kwargs={'fill_kwargs': {
+              'alpha': 0.10
+          }},
+      )
+      axs[1, 0].set_xlim([0, 4])
+      axs[1, 0].set_ylim([0, 20])
+      plt.suptitle(f"group : {group_i}")
+      images.append(plot_to_image(None))
+    if summary_writer:
+      plot_name = f"{model_name}_tau_sigma_pairplot"
+      plot_name += suffix
+      summary_writer.image(
+          tag=plot_name,
+          image=normalize_images(images),
+          step=step,
+          max_outputs=len(images),
+      )

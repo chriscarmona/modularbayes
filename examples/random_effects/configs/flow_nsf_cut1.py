@@ -13,6 +13,9 @@ def get_config():
   config.loc_groups = [10., 5.] + [0. for _ in range(config.num_groups - 2)]
   config.scale_groups = [1. for _ in range(config.num_groups)]
 
+  # Model hyper-parameters, defining the prior.
+  config.prior_hparams = None
+
   config.method = 'flow'
 
   # Defined in `flows`.
@@ -34,8 +37,7 @@ def get_config():
   # SMI degree of influence
   config.smi_eta_groups = [0.0001, 1.
                           ] + [1. for _ in range(config.num_groups - 2)]
-  config.flow_kwargs.smi_eta = {'groups': config.smi_eta_groups}
-  config.plot_suffix = 'cut1'
+  config.plot_suffix = '_cut1'
 
   # Number of samples used to estimate the ELBO.
   config.num_samples_elbo = 200
@@ -70,7 +72,7 @@ def get_config():
   config.log_img_steps = int(config.training_steps / 10)
 
   # Number of posteriors samples used in the plots.
-  config.num_samples_plot = 10_000
+  config.num_samples_plot = 40_000
 
   config.num_samples_eval = 1_000
 

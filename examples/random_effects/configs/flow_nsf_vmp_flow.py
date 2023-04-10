@@ -13,11 +13,13 @@ def get_config():
   config.loc_groups = [10., 5.] + [0. for _ in range(config.num_groups - 2)]
   config.scale_groups = [1. for _ in range(config.num_groups)]
 
+  # Model hyper-parameters, defining the prior.
+  config.prior_hparams = None
+
   config.method = 'vmp_flow'
 
   # Defined in `flows`.
   config.flow_name = 'meta_nsf'
-
   # kwargs to be passed to the flow
   config.flow_kwargs = ml_collections.ConfigDict()
   # Number of layers to use in the flow.
@@ -68,23 +70,23 @@ def get_config():
   config.eval_steps = int(config.training_steps / 10)
 
   # Initial seed for random numbers.
-  config.seed = 123
+  config.seed = 0
 
   # How often to log images to monitor convergence.
   config.log_img_steps = int(config.training_steps / 10)
 
   # Number of posteriors samples used in the plots.
-  config.num_samples_plot = 10_000
+  config.num_samples_plot = 40_000
 
   config.num_samples_elpd = 1_000
 
-  config.eta_plot = [
-      [1. for _ in range(config.num_groups)],
-      [0.0001, 1.] + [1. for _ in range(config.num_groups - 2)],
-      [0.0001, 0.0001] + [1. for _ in range(config.num_groups - 2)],
-      [1., 0.0001] + [1. for _ in range(config.num_groups - 2)],
-  ]
-  config.suffix_eta_plot = ['full', 'cut1', 'cut2', 'cut3']
+  config.smi_eta_dim = config.num_groups
+  config.smi_eta_plot = {
+      'full': [1. for _ in range(config.smi_eta_dim)],
+      'cut1': [0.0001, 1.] + [1. for _ in range(config.smi_eta_dim - 2)],
+      'cut2': [0.0001, 0.0001] + [1. for _ in range(config.smi_eta_dim - 2)],
+      'cut3': [1., 0.0001] + [1. for _ in range(config.smi_eta_dim - 2)],
+  }
 
   # How often to save model checkpoints.
   config.checkpoint_steps = int(config.training_steps / 4)

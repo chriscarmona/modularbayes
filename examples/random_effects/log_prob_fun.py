@@ -1,116 +1,108 @@
-"""Probability functions for the random effects model."""
+"""Probability functions for the Epidemiology model."""
 
+from typing import Dict, Optional
+from collections import namedtuple
+
+import jax
 import jax.numpy as jnp
 import distrax
+from tensorflow_probability.substrates import jax as tfp
 
-from modularbayes._src.typing import Any, Array, Batch, Dict, Optional, SmiEta
+from modularbayes._src.typing import Array, Batch, PRNGKey
+
+tfd = tfp.distributions
+
+ModelParams = namedtuple(
+    "model_params",
+    field_names=('sigma', 'beta', 'tau'),
+)
+ModelParamsNoCut = namedtuple(
+    'model_params_nocut',
+    field_names=('sigma',),
+)
+ModelParamsCut = namedtuple(
+    "model_params_cut",
+    field_names=('beta', 'tau'),
+)
+SmiEta = namedtuple(
+    "smi_eta",
+    field_names=('groups'),
+    defaults=(1.0,),
+)
 
 
 # Joint distribution (data and params)
-def log_prob_joint(
+def logprob_joint(
     batch: Batch,
-    posterior_sample_dict: Dict[str, Any],
+    model_params: ModelParams,
+    prior_hparams=None,
     smi_eta: Optional[SmiEta] = None,
-) -> Array:
-  """Compute the joint probability for the HPV model.
+) -> float:
+  """Compute the joint probability for the Random effects model.
 
   The joint log probability of the model is given by
 
   .. math::
 
     log_prob(Y,tau,beta,sigma) &= \prod_{i=1}^{N} log_prob(Y_i \| \beta, \sigma) \\
-                            &+ log_prob(beta \| \tau)  \\
+                            &+ log_prob(beta_i \| \tau)  \\
                             &+ log_prob(\tau \| \sigma)  \\
                             &+ log_prob(\sigma).
-
-  Optionally, if `smi_eta` is provided, the link between groups is reduced
-
-  .. math::
-
-    log_prob(Y,tau,beta,sigma) &= \prod_{i=1}^{N} log_prob(Y_i \| \beta, \sigma) \\
-                            &+ log_prob(beta \| \tau)  \\
-                            &+ \eta * log_prob(\tau \| \sigma)  \\
-                            &+ log_prob(\sigma).
-
-  Args:
-    batch: Dictionary with the data. Must contains 2 items 'Y' and 'group',
-      each one of shape (n,).
-    posterior_sample_dict: Dictionary with values for the model parameters. Must
-      contain 3 items: 'tau', 'beta' and 'sigma', arrays with shapes (s, 1),
-      (s, num_groups) and (s, num_groups), respectively.
-    smi_eta: Optional dictionary with the power to be applied on each module of
-      the likelihood. Must contain 'groups', an array of shape (num_groups,).
-
-  Output:
-    Array of shape (s,) with log joint probability evaluated on each value of
-    the model parameters.
   """
-  num_samples, _ = posterior_sample_dict['sigma'].shape
+  if smi_eta is None:
+    smi_eta = SmiEta()
 
-  # Compute pointwise log-likelihood
-  loglik_pointwise = distrax.Normal(
-      loc=posterior_sample_dict['beta'][:, batch['group']],
-      scale=posterior_sample_dict['sigma'][:,
-                                           batch['group']]).log_prob(batch['Y'])
-
-  # Add over observations
-  loglik = loglik_pointwise.sum(axis=-1)
-
-  assert loglik.shape == (num_samples,)
+  ### Define loglikelihood function ###
+  def log_prob_y_given_betasigma(beta: Array, sigma: Array) -> float:
+    return distrax.Independent(
+        distrax.Normal(loc=beta[batch['group']], scale=sigma[batch['group']]),
+        reinterpreted_batch_ndims=1).log_prob(batch['Y'])
 
   # Define priors
-  def log_prob_beta(
-      beta: Array,
-      tau: Array,
-      smi_eta_groups: Optional[Array] = None,
-  ):
-    num_samples, num_groups = beta.shape
-
-    beta_prior_scale = jnp.broadcast_to(tau, (num_samples, num_groups))
-    if smi_eta_groups is not None:
-      beta_prior_scale = jnp.broadcast_to(
-          tau / jnp.expand_dims(smi_eta_groups, axis=0),
-          (num_samples, num_groups))
-    else:
-      beta_prior_scale = jnp.broadcast_to(tau, (num_samples, num_groups))
-
-    log_prob = distrax.Normal(
-        loc=jnp.zeros((num_samples, num_groups)),
-        scale=beta_prior_scale,
-    ).log_prob(beta)
-    # Add over groups
-    log_prob = log_prob.sum(axis=-1)
-
-    return log_prob
+  def log_prob_beta_given_tau(beta: Array, tau: Array,
+                              eta_groups: Array) -> Array:
+    return distrax.Independent(
+        distrax.Normal(loc=0, scale=tau / eta_groups),
+        reinterpreted_batch_ndims=1).log_prob(beta)
 
   # If smi, multiply by eta
 
-  def log_prob_tau(
-      tau: Array,
-      sigma: Array,
-      num_obs_groups: Array,
-  ):
-    tau = tau.squeeze(-1)
-
-    log_prob = -jnp.log(tau**2 + (sigma**2 / num_obs_groups).mean(axis=-1))
-
-    return log_prob
+  def log_prob_tau(tau: Array, sigma: Array, num_obs_groups: Array) -> float:
+    log_prob_ = -jnp.log(tau**2 + (sigma**2 / num_obs_groups).mean())
+    assert log_prob_.shape == (1,)
+    return log_prob_[0]
 
   def log_prob_sigma(sigma: Array):
-    return (-2 * jnp.log(sigma)).sum(axis=-1)
+    return -2 * jnp.log(sigma).sum()
 
   # Everything together
   log_prob = (
-      loglik + log_prob_beta(
-          beta=posterior_sample_dict['beta'],
-          tau=posterior_sample_dict['tau'],
-          smi_eta_groups=smi_eta['groups'] if smi_eta else None,
-      ) + log_prob_tau(
-          tau=posterior_sample_dict['tau'],
-          sigma=posterior_sample_dict['sigma'],
-          num_obs_groups=batch['num_obs_groups'],
-      ) + log_prob_sigma(posterior_sample_dict['sigma']))
-
-  assert log_prob.shape == (num_samples,)
+      log_prob_y_given_betasigma(
+          beta=model_params.beta, sigma=model_params.sigma) +
+      log_prob_beta_given_tau(
+          beta=model_params.beta,
+          tau=model_params.tau,
+          eta_groups=smi_eta.groups) + log_prob_tau(
+              tau=model_params.tau,
+              sigma=model_params.sigma,
+              num_obs_groups=batch['num_obs_groups']) +
+      log_prob_sigma(sigma=model_params.sigma))
 
   return log_prob
+
+
+def sample_eta_values(
+    prng_key: PRNGKey,
+    num_samples: int,
+    num_groups: int,
+    eta_sampling_a: float,
+    eta_sampling_b: float,
+) -> SmiEta:
+  """Generate a sample of the smi_eta values applicable to the model."""
+  smi_etas = SmiEta(
+      groups=jax.random.beta(
+          key=prng_key,
+          a=eta_sampling_a,
+          b=eta_sampling_b,
+          shape=(num_samples, num_groups)),)
+  return smi_etas
