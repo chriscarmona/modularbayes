@@ -22,7 +22,7 @@ from log_prob_fun import ModelParams, ModelParamsCut, SmiEta, logprob_joint
 import plot
 
 from modularbayes import (sample_q_nocut, sample_q_cutgivennocut, sample_q,
-                          elbo_estimate)
+                          elbo_smi)
 from modularbayes._src.utils.training import TrainState
 from modularbayes import (flatten_dict, initial_state_ckpt, update_states,
                           save_checkpoint)
@@ -84,7 +84,7 @@ def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
   """Define training loss function."""
 
   ### Compute ELBO ###
-  elbo_dict = elbo_estimate(params_tuple=params_tuple, *args, **kwargs)
+  elbo_dict = elbo_smi(lambda_tuple=params_tuple, *args, **kwargs)
 
   # Our loss is the Negative ELBO
   loss_avg = -(jnp.nanmean(elbo_dict['stage_1'] + elbo_dict['stage_2']))
@@ -93,7 +93,7 @@ def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
 
 
 def sample_q_as_az(
-    state_list: List[TrainState],
+    lambda_tuple: Tuple[hk.Params],
     dataset: Dict[str, Any],
     prng_key: PRNGKey,
     flow_get_fn_nocut: Callable,
@@ -109,7 +109,7 @@ def sample_q_as_az(
       'Only one of sample_shape or eta_values must be provided.')
   # Sample from flow
   q_distr_out = sample_q(
-      lambda_tuple=[state.params for state in state_list],
+      lambda_tuple=lambda_tuple,
       prng_key=prng_key,
       flow_get_fn_nocut=flow_get_fn_nocut,
       flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
@@ -323,8 +323,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   @jax.jit
   def elbo_validation_jit(state_list, batch, prng_key, smi_eta):
-    return elbo_estimate(
-        params_tuple=tuple(state.params for state in state_list),
+    return elbo_smi(
+        lambda_tuple=tuple(state.params for state in state_list),
         batch=batch,
         prng_key=prng_key,
         num_samples=config.num_samples_eval,
@@ -353,7 +353,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         (state_list[0].step % config.log_img_steps == 0)):
       # print("Logging images...\n")
       az_data = sample_q_as_az(
-          state_list=state_list,
+          lambda_tuple=tuple(x.params for x in state_list),
           dataset=train_ds,
           prng_key=next(prng_seq),
           flow_get_fn_nocut=flow_get_fn_nocut,
@@ -442,7 +442,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   # Last plot of posteriors
   az_data = sample_q_as_az(
-      state_list=state_list,
+      lambda_tuple=tuple(x.params for x in state_list),
       dataset=train_ds,
       prng_key=next(prng_seq),
       flow_get_fn_nocut=flow_get_fn_nocut,

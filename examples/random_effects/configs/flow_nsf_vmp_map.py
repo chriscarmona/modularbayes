@@ -33,7 +33,7 @@ def get_config():
   # the upper bound of the spline's range
   config.flow_kwargs.range_max = 40.
 
-  config.num_samples_elbo = 100
+  config.num_samples_elbo = 10
   config.num_samples_eval = 5_000
 
   # Number of training steps to run.
@@ -68,13 +68,13 @@ def get_config():
   # Number of posteriors samples used in the plots.
   config.num_samples_plot = 40_000
 
-  config.eta_plot = [
-      [1. for _ in range(config.num_groups)],
-      [0.0001, 1.] + [1. for _ in range(config.num_groups - 2)],
-      [0.0001, 0.0001] + [1. for _ in range(config.num_groups - 2)],
-      [1., 0.0001] + [1. for _ in range(config.num_groups - 2)],
-  ]
-  config.suffix_eta_plot = ['full', 'cut1', 'cut2', 'cut3']
+  config.smi_eta_dim = config.num_groups
+  config.smi_eta_plot = {
+      'full': [1. for _ in range(config.smi_eta_dim)],
+      'cut1': [0.0001, 1.] + [1. for _ in range(config.smi_eta_dim - 2)],
+      'cut2': [0.0001, 0.0001] + [1. for _ in range(config.smi_eta_dim - 2)],
+      'cut3': [1., 0.0001] + [1. for _ in range(config.smi_eta_dim - 2)],
+  }
 
   # How often to save model checkpoints.
   config.checkpoint_steps = int(config.training_steps / 4)
@@ -83,7 +83,7 @@ def get_config():
   config.checkpoints_keep = 1
 
   # Arguments for the Variational Meta-Posterior map
-  config.vmp_map_name = 'VmpMap'
+  config.vmp_map_name = 'MLPVmpMap'
   config.vmp_map_kwargs = ml_collections.ConfigDict()
   eta_dim = config.num_groups
   config.vmp_map_kwargs.hidden_sizes = [eta_dim * 10] * 5 + [20]

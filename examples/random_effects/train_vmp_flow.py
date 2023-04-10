@@ -1,4 +1,5 @@
-"""Training a Variational Meta-Posterior."""
+"""Training a Variational Meta-Posterior, using the VMP flow."""
+
 import pathlib
 
 from absl import logging
@@ -17,12 +18,13 @@ import optax
 
 import flows
 from flows import split_flow_nocut, split_flow_cut
-from log_prob_fun import ModelParams, ModelParamsCut, SmiEta, logprob_joint, sample_eta_values
+from log_prob_fun import (ModelParams, ModelParamsCut, SmiEta, logprob_joint,
+                          sample_eta_values)
 import plot
 from train_flow import load_data, make_optimizer, sample_q_as_az
 
-from modularbayes import (sample_q_nocut, sample_q_cutgivennocut, sample_q,
-                          elbo_estimate_meta)
+from modularbayes import (sample_q_nocut, sample_q_cutgivennocut,
+                          elbo_smi_vmpflow)
 from modularbayes._src.utils.training import TrainState
 from modularbayes import (flatten_dict, initial_state_ckpt, update_states,
                           save_checkpoint)
@@ -40,7 +42,7 @@ def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
   """Define training loss function."""
 
   ### Compute ELBO ###
-  elbo_dict = elbo_estimate_meta(params_tuple=params_tuple, *args, **kwargs)
+  elbo_dict = elbo_smi_vmpflow(lambda_tuple=params_tuple, *args, **kwargs)
 
   # Our loss is the Negative ELBO
   loss_avg = -(jnp.nanmean(elbo_dict['stage_1'] + elbo_dict['stage_2']))
@@ -76,7 +78,7 @@ def log_images(
                                 (num_samples_plot,) + eta_groups_i.shape),)
     # Sample from flow
     az_data = sample_q_as_az(
-        state_list=state_list,
+        lambda_tuple=tuple(x.params for x in state_list),
         dataset=dataset,
         prng_key=next(prng_seq),
         flow_get_fn_nocut=flow_get_fn_nocut,
@@ -303,8 +305,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   @jax.jit
   def elbo_validation_jit(state_list, batch, prng_key):
-    return elbo_estimate_meta(
-        params_tuple=tuple(state.params for state in state_list),
+    return elbo_smi_vmpflow(
+        lambda_tuple=tuple(state.params for state in state_list),
         batch=batch,
         prng_key=prng_key,
         num_samples=config.num_samples_eval,

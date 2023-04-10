@@ -36,7 +36,7 @@ def get_config():
   # the upper bound of the spline's range
   config.flow_kwargs.range_max = 40.
 
-  config.num_samples_elbo = 100
+  config.num_samples_elbo = 10
   config.num_samples_eval = 10_000
 
   # Number of training steps to run.

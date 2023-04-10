@@ -40,7 +40,7 @@ def get_config():
   config.plot_suffix = '_cut1'
 
   # Number of samples used to estimate the ELBO.
-  config.num_samples_elbo = 200
+  config.num_samples_elbo = 10
 
   # Number of training steps to run.
   config.training_steps = 30_000
