@@ -6,8 +6,6 @@ import pickle
 
 from absl import logging
 
-from tensorflow.io import gfile
-
 import haiku as hk
 import jax
 from jax import lax
@@ -16,7 +14,7 @@ from jax import numpy as jnp
 import optax
 
 from modularbayes._src.typing import (Any, Batch, Callable, Dict, List, Metrics,
-                                 NamedTuple, PRNGKey, Tuple, Union)
+                                      NamedTuple, PRNGKey, Tuple, Union)
 
 
 def save_ckpt(state: NamedTuple, path: Union[str, pathlib.Path]) -> None:
@@ -116,7 +114,7 @@ def save_checkpoint(
       for old_ckpt in old_ckpts:
         ckpt_path = pathlib.Path(checkpoint_dir) / old_ckpt
         logging.info('Removing checkpoint at %s', ckpt_path)
-        gfile.remove(ckpt_path)
+        os.remove(ckpt_path)
 
 
 def update_state(
