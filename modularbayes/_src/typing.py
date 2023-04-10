@@ -9,8 +9,6 @@ import jax
 
 import numpy as np
 
-from flax.metrics.tensorboard import SummaryWriter
-
 from chex import Array, PRNGKey
 
 from collections import OrderedDict
@@ -65,7 +63,6 @@ __all__ = [
     'Sequence',
     'Scalar',
     'Shape',
-    'SummaryWriter',
     'Tuple',
     'Union',
 ]

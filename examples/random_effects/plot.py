@@ -1,6 +1,6 @@
 """Plot methods for the epidemiology model."""
 
-from typing import Dict, Any, Mapping, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple
 import warnings
 
 import pathlib
@@ -9,15 +9,13 @@ import numpy as np
 import pandas as pd
 
 from matplotlib import pyplot as plt
-from matplotlib.figure import Figure
-from matplotlib.axes import Axes
 
 import arviz as az
 from arviz import InferenceData
 
 from modularbayes import plot_to_image, normalize_images
 
-from modularbayes._src.typing import SummaryWriter
+from flax.metrics import tensorboard
 
 from log_prob_fun import ModelParams
 
@@ -68,7 +66,7 @@ def posterior_plots(
     suffix: str = '',
     step: Optional[int] = 0,
     workdir_png: Optional[str] = None,
-    summary_writer: Optional[SummaryWriter] = None,
+    summary_writer: Optional[tensorboard.SummaryWriter] = None,
 ) -> None:
   model_name = 'random_effects'
   if show_sigma_trace:

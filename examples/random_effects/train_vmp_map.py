@@ -32,8 +32,7 @@ from modularbayes import (flatten_dict, plot_to_image, initial_state_ckpt,
                           update_states, save_checkpoint)
 from modularbayes._src.utils.training import TrainState
 from modularbayes._src.typing import (Any, Array, Callable, ConfigDict, Dict,
-                                      List, Optional, PRNGKey, SummaryWriter,
-                                      Tuple)
+                                      List, Optional, PRNGKey, Tuple)
 
 kernels = tfp.math.psd_kernels
 
@@ -80,7 +79,7 @@ def log_images(
     lambda_init_list: List[hk.Params],
     flow_get_fn_nocut: Callable,
     flow_get_fn_cutgivennocut: Callable,
-    summary_writer: Optional[SummaryWriter] = None,
+    summary_writer: Optional[tensorboard.SummaryWriter] = None,
     workdir_png: Optional[str] = None,
 ) -> None:
   """Plots to monitor during training."""

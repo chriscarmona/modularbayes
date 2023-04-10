@@ -15,8 +15,10 @@ import jax
 from jax import numpy as jnp
 import haiku as hk
 
+from flax.metrics import tensorboard
+
 from modularbayes import colour_fader, plot_to_image
-from modularbayes._src.typing import Array, SummaryWriter
+from modularbayes._src.typing import Array
 
 from log_prob_fun import ModelParams, SmiEta
 
@@ -69,7 +71,7 @@ def posterior_plots(
     suffix: str = '',
     step: Optional[int] = 0,
     workdir_png: Optional[str] = None,
-    summary_writer: Optional[SummaryWriter] = None,
+    summary_writer: Optional[tensorboard.SummaryWriter] = None,
 ) -> None:
   model_name = 'epidemiology'
   if show_phi_trace:

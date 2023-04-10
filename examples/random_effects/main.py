@@ -9,7 +9,6 @@ from absl import logging
 
 import jax
 from ml_collections import config_flags
-import tensorflow as tf
 
 import sample_mcmc
 import train_flow
@@ -38,11 +37,6 @@ def main(argv):
     if not os.path.exists(FLAGS.log_dir):
       os.makedirs(FLAGS.log_dir)
     logging.get_absl_handler().use_absl_log_file()
-
-  # Hide any GPUs form TensorFlow. Otherwise TF might reserve memory and make
-  # it unavailable to JAX.
-  tf.config.experimental.set_visible_devices([], 'GPU')
-  tf.config.experimental.set_visible_devices([], 'TPU')
 
   logging.info('JAX process: %d / %d', jax.process_index(), jax.process_count())
   logging.info('JAX local devices: %r', jax.local_devices())

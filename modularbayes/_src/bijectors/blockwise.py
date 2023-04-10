@@ -30,12 +30,6 @@ class Blockwise(base.Bijector):
       bijectors=[tfb.Exp(), tfb.Sigmoid()], block_sizes=[2, 1]
     )
   y = blockwise.forward(x)
-
-  # Equivalent to:
-  x_0, x_1 = tf.split(x, [2, 1], axis=-1)
-  y_0 = tfb.Exp().forward(x_0)
-  y_1 = tfb.Sigmoid().forward(x_1)
-  y = tf.concat([y_0, y_1], axis=-1)
   ```
 
   Keyword arguments can be passed to the inner bijectors by utilizing the inner
@@ -44,12 +38,6 @@ class Blockwise(base.Bijector):
   ```python
   blockwise = tfb.Blockwise([Bijector1(name='b1'), Bijector2(name='b2')])
   y = blockwise.forward(x, b1={'arg': 1}, b2={'arg': 2})
-
-  # Equivalent to:
-  x_0, x_1 = tf.split(x, [1, 1], axis=-1)
-  y_0 = Bijector1().forward(x_0, arg=1)
-  y_1 = Bijector2().forward(x_1, arg=2)
-  y = tf.concat([y_0, y_1], axis=-1)
   ```
 
   """

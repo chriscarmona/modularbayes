@@ -29,8 +29,7 @@ from modularbayes._src.utils.training import TrainState
 from modularbayes import (flatten_dict, initial_state_ckpt, update_states,
                           save_checkpoint)
 from modularbayes._src.typing import (Any, Array, Callable, ConfigDict, Dict,
-                                      List, Optional, PRNGKey, SummaryWriter,
-                                      Tuple)
+                                      List, Optional, PRNGKey, Tuple)
 
 # Set high precision for matrix multiplication in jax
 jax.config.update('jax_default_matmul_precision', 'float32')
@@ -58,7 +57,7 @@ def log_images(
     num_samples_plot: int,
     flow_get_fn_nocut: Callable,
     flow_get_fn_cutgivennocut: Callable,
-    summary_writer: Optional[SummaryWriter] = None,
+    summary_writer: Optional[tensorboard.SummaryWriter] = None,
     workdir_png: Optional[str] = None,
 ) -> None:
   """Plots to monitor during training."""
