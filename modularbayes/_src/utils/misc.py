@@ -10,7 +10,6 @@ import numpy as np
 import matplotlib
 from matplotlib import pyplot as plt
 
-import tensorflow as tf
 import csv
 
 from jax import numpy as jnp
@@ -110,21 +109,21 @@ def cart2pol(x, y):
 
 
 def plot_to_image(fig):
-  """Converts the matplotlib plot to a PNG image.
-
-  The supplied figure is closed and inaccessible after this call.
-  """
-  # Save the plot to a PNG in memory.
+  """Converts a matplotlib figure to a numpy array."""
+  if fig is None:
+    fig = plt.gcf()
+  # Save the plot to a buffer
   buf = io.BytesIO()
-  plt.savefig(buf, format='png')
-  # Closing the figure prevents it from being displayed directly inside
-  # the notebook.
+  plt.savefig(buf, format='raw', dpi=fig.dpi)
   plt.close(fig)
   buf.seek(0)
-  # Convert PNG buffer to TF image
-  image = tf.image.decode_png(buf.getvalue(), channels=4)
+  image = np.frombuffer(buf.getvalue(), dtype=np.uint8)
+  image = np.reshape(
+      image, newshape=(int(fig.bbox.bounds[3]), int(fig.bbox.bounds[2]), -1))
+  buf.close()
   # Add the batch dimension
-  image = tf.expand_dims(image, 0)
+  image = image[None, ...]
+
   return image
 
 
