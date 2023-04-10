@@ -1,4 +1,5 @@
-"""Training a Variational Meta-Posterior."""
+"""Training a Variational Meta-Posterior, using the VMP flow."""
+
 import pathlib
 
 from absl import logging

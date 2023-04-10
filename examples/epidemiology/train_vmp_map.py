@@ -1,4 +1,5 @@
-"""Flow model trained on Epidemiology data."""
+"""Training a Variational Meta-Posterior, using the VMP map."""
+
 import pathlib
 
 from absl import logging
@@ -25,14 +26,14 @@ from log_prob_fun import (ModelParams, ModelParamsCut, SmiEta, logprob_joint,
                           sample_eta_values)
 
 import modularbayes
-from modularbayes import (sample_q_nocut, sample_q_cutgivennocut, sample_q,
+from modularbayes import (sample_q_nocut, sample_q_cutgivennocut,
                           elbo_smi_vmpmap)
 from modularbayes import (flatten_dict, plot_to_image, initial_state_ckpt,
                           update_states, save_checkpoint)
 from modularbayes._src.utils.training import TrainState
-from modularbayes._src.typing import (Any, Array, Batch, Callable, ConfigDict,
-                                      Dict, List, Mapping, Optional, PRNGKey,
-                                      SummaryWriter, Tuple, Union)
+from modularbayes._src.typing import (Any, Array, Callable, ConfigDict, Dict,
+                                      List, Optional, PRNGKey, SummaryWriter,
+                                      Tuple)
 
 kernels = tfp.math.psd_kernels
 
@@ -108,7 +109,7 @@ def log_images(
   ]
 
   # Sample from flows and plot, one eta at a time
-  for i, eta_cancer_i in enumerate(config.smi_eta_cancer_plot):
+  for i, eta_i in enumerate(config.smi_eta_cancer_plot):
     az_data = sample_q_as_az(
         lambda_tuple=jax.tree_map(lambda x: x[i], lambda_tuple),
         dataset=dataset,
@@ -124,8 +125,8 @@ def log_images(
         show_theta_trace=False,
         show_loglinear_scatter=True,
         show_theta_pairplot=True,
-        eta=eta_cancer_i,
-        suffix=f"_eta_cancer_{float(eta_cancer_i):.3f}",
+        eta=eta_i,
+        suffix=f"_eta_cancer_{float(eta_i):.3f}",
         step=state_list[0].step,
         workdir_png=workdir_png,
         summary_writer=summary_writer,
@@ -254,22 +255,23 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
           forward_fn=vmpmap_fn,
           forward_fn_kwargs={
-              'eta_values': jnp.ones((config.num_samples_eta, 2)),
-              'lambda_init': lambda_init_i
+              'eta_values':
+                  jnp.ones((config.num_samples_eta, config.smi_eta_dim)),
+              'lambda_init':
+                  lambda_init_i
           },
           prng_key=next(prng_seq),
           optimizer=make_optimizer(**config.optim_kwargs),
       )
       for state_name_i, lambda_init_i in zip(state_name_list, lambda_init_list)
   ]
-
   # globals().update(forward_fn_kwargs)
 
   # Print a useful summary of the execution of the VHP-map architecture.
   tabulate_fn_ = hk.experimental.tabulate(
       f=lambda state_i, lambda_init_i: vmpmap_fn.apply(
           state_i.params,
-          eta_values=jnp.ones((config.num_samples_eta, 2)),
+          eta_values=jnp.ones((config.num_samples_eta, config.smi_eta_dim)),
           lambda_init=lambda_init_i),
       columns=(
           "module",
