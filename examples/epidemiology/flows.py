@@ -157,7 +157,7 @@ def get_q_nocut_nsf(
             output_dim=math.prod(event_shape),
             hidden_sizes=hidden_sizes,
             num_bijector_params=num_bijector_params,
-            name='conditioner_phi',
+            name='conditioner_nocut',
         ),
     )
     flow_layers.append(layer)
@@ -305,13 +305,13 @@ def get_q_nocut_meta_nsf(
             output_dim=math.prod(event_shape),
             hidden_sizes=hidden_sizes_conditioner_eta,
             num_bijector_params=num_bijector_params,
-            name='conditioner_eta_phi',
+            name='conditioner_eta_nocut',
         ),
         conditioner=modularbayes.MLPConditioner(
             output_dim=math.prod(event_shape),
             hidden_sizes=hidden_sizes_conditioner,
             num_bijector_params=num_bijector_params,
-            name='conditioner_phi',
+            name='conditioner_nocut',
         ),
     )
     flow_layers.append(layer)
@@ -458,8 +458,7 @@ def concat_flow_nocut(
     **_,
 ) -> Dict[str, Any]:
   """Concatenate model parameters from ModelParamsNoCut into a single array."""
-
-  concat_params = model_params.phi
+  concat_params = model_params[0]
   assert concat_params.ndim == 1
   return concat_params
 
