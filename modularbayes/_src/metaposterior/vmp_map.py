@@ -9,7 +9,7 @@ from jax import numpy as jnp
 from modularbayes._src.typing import Array, List, Optional
 
 
-class VmpMap(hk.Module):
+class MLPVmpMap(hk.Module):
   """Trainable mapping from eta to normalizing flow parameters."""
 
   def __init__(
