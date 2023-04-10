@@ -46,17 +46,17 @@ do
                                                  --alsologtostderr
 done
 
-# ## Variational Meta-Posterior via VMP-map (Mean field)
-# python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_mf_vmp_map.py \
-#                                                --workdir=$WORK_DIR/epidemiology/mean_field/vmp_map \
-#                                                --log_dir $WORK_DIR/epidemiology/mean_field/vmp_map/log_dir \
-#                                                --alsologtostderr
+## Variational Meta-Posterior via VMP-map (Mean field)
+python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_mf_vmp_map.py \
+                                               --workdir=$WORK_DIR/epidemiology/mean_field/vmp_map \
+                                               --log_dir $WORK_DIR/epidemiology/mean_field/vmp_map/log_dir \
+                                               --alsologtostderr
 
-# ## Variational Meta-Posterior via VMP-map (Neural Spline Flow)
-# python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_nsf_vmp_map.py \
-#                                                --workdir=$WORK_DIR/epidemiology/nsf/vmp_map \
-#                                                --log_dir $WORK_DIR/epidemiology/nsf/vmp_map/log_dir \
-#                                                --alsologtostderr
+## Variational Meta-Posterior via VMP-map (Neural Spline Flow)
+python3 $SMI_DIR/examples/epidemiology/main.py --config=$SMI_DIR/examples/epidemiology/configs/flow_nsf_vmp_map.py \
+                                               --workdir=$WORK_DIR/epidemiology/nsf/vmp_map \
+                                               --log_dir $WORK_DIR/epidemiology/nsf/vmp_map/log_dir \
+                                               --alsologtostderr
 
 ## Variational Meta-Posterior via VMP-flow (Neural Spline Flow)
 ### Neural Spline Flow
@@ -76,6 +76,8 @@ python3 $SMI_DIR/examples/random_effects/main.py --config=$SMI_DIR/examples/rand
                                                  --workdir=$WORK_DIR/random_effects/mcmc/cut1
 python3 $SMI_DIR/examples/random_effects/main.py --config=$SMI_DIR/examples/random_effects/configs/mcmc_cut2.py \
                                                  --workdir=$WORK_DIR/random_effects/mcmc/cut2
+python3 $SMI_DIR/examples/random_effects/main.py --config=$SMI_DIR/examples/random_effects/configs/mcmc_cut3.py \
+                                                 --workdir=$WORK_DIR/random_effects/mcmc/cut3
 ### Neural Spline Flow
 python3 $SMI_DIR/examples/random_effects/main.py --config=$SMI_DIR/examples/random_effects/configs/flow_nsf_full.py \
                                                  --workdir=$WORK_DIR/random_effects/nsf/full

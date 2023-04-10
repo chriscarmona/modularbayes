@@ -1,25 +1,24 @@
 """Plot methods for the epidemiology model."""
 
-from typing import Dict, Any, Mapping, Optional, Tuple
-import warnings
+from typing import Dict, Any, Optional, Tuple
 
 import pathlib
 
 import numpy as np
-import pandas as pd
 
 from matplotlib import pyplot as plt
-from matplotlib.figure import Figure
-from matplotlib.axes import Axes
 
 import arviz as az
 from arviz import InferenceData
 
+import jax
+from jax import numpy as jnp
+import haiku as hk
+
 from modularbayes import colour_fader, plot_to_image
+from modularbayes._src.typing import Array, SummaryWriter
 
-from modularbayes._src.typing import SummaryWriter
-
-from log_prob_fun import ModelParams
+from log_prob_fun import ModelParams, SmiEta
 
 
 def arviz_from_samples(
@@ -195,3 +194,47 @@ def posterior_plots(
           image=image,
           step=step,
       )
+
+
+def plot_vmp_map(
+    alpha: hk.Params,
+    vmpmap_fn: hk.Transformed,
+    lambda_init: hk.Params,
+    lambda_idx_to_plot: Tuple[int],
+    eta_cancer_grid: Array,
+):
+  """Visualize VMP map."""
+
+  eta_cancer_grid = jnp.linspace(0, 1, 51).round(2)
+  smi_etas = SmiEta(
+      hpv=jnp.ones(len(eta_cancer_grid)),
+      cancer=jnp.array(eta_cancer_grid),
+  )
+  lambda_grid = vmpmap_fn.apply(
+      alpha,
+      eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
+          smi_etas, axis=-1)),
+      lambda_init=lambda_init,
+  )
+  # All variational parameters, concatenated
+  lambda_grid_concat = jnp.concatenate([
+      x.reshape(len(eta_cancer_grid), -1)
+      for x in jax.tree_util.tree_leaves(lambda_grid)
+  ],
+                                       axis=-1)
+
+  # Plot variational parameters as a function of eta_Y
+  fig, axs = plt.subplots(
+      nrows=1,
+      ncols=len(lambda_idx_to_plot),
+      figsize=(4 * len(lambda_idx_to_plot), 3),
+      squeeze=False,
+  )
+  for i, idx_i in enumerate(lambda_idx_to_plot):
+    axs[0, i].plot(eta_cancer_grid, lambda_grid_concat[:, idx_i])
+    axs[0, i].plot(eta_cancer_grid, lambda_grid_concat[:, idx_i])
+    axs[0, i].set_xlabel('eta')
+    axs[0, i].set_ylabel(f'lambda_{idx_i}')
+  fig.tight_layout()
+
+  return fig, axs
