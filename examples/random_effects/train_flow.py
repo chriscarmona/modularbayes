@@ -27,7 +27,7 @@ from modularbayes._src.utils.training import TrainState
 from modularbayes import (flatten_dict, initial_state_ckpt, update_states,
                           save_checkpoint)
 from modularbayes._src.typing import (Any, Array, Callable, ConfigDict, Dict,
-                                      List, Optional, PRNGKey, Tuple)
+                                      Optional, PRNGKey, Tuple)
 
 # Set high precision for matrix multiplication in jax
 jax.config.update('jax_default_matmul_precision', 'float32')
@@ -129,6 +129,71 @@ def sample_q_as_az(
       model_params=model_params_az,
   )
   return az_data
+
+
+def elpd_waic(
+    model_params_sample: ModelParams,
+    dataset: Dict[str, Any],
+) -> float:
+  """Compute ELPD WAIC.
+
+  Estimates the ELPD based on a Monte Carlo approximations. Using WAIC.
+  """
+  num_samples, _ = model_params_sample.beta.shape
+
+  # Posterior predictive distribution
+  predictive_dist = distrax.Normal(
+      loc=model_params_sample.beta[:, dataset['group']],
+      scale=model_params_sample.sigma[:, dataset['group']],
+  )
+
+  # Compute LPD
+  loglik_pointwise_insample = predictive_dist.log_prob(dataset['Y'])
+  lpd_pointwise = jax.scipy.special.logsumexp(
+      loglik_pointwise_insample, axis=0) - jnp.log(num_samples)
+  lpd = lpd_pointwise.mean(axis=-1)
+
+  # Estimated effective number of parameters
+  # Variance over samples
+  p_waic_pointwise = jnp.var(loglik_pointwise_insample, axis=0)
+  p_waic = p_waic_pointwise.mean(axis=-1)
+
+  # ELPD WAIC
+  elpd_waic = lpd - p_waic
+
+  return elpd_waic
+
+
+def elpd_truth_mc(
+    model_params_sample: ModelParams,
+    y_new: Array,
+) -> float:
+  """Compute ELPD.
+
+  Estimates the ELPD based on a Monte Carlo approximation. Assuming we have a
+  sample of new data from the true generative model. Compute the
+  Expected Log-Predictive density over the new data.
+  """
+
+  num_samples, _ = model_params_sample.beta.shape
+
+  # Posterior predictive distribution
+  predictive_dist = distrax.Normal(
+      loc=model_params_sample.beta,
+      scale=model_params_sample.sigma,
+  )
+
+  loglik_pointwise_outofsample = predictive_dist.log_prob(y_new)
+
+  # Computed log-pointwise predictive density
+  # Average over posterior samples
+  elpd_mc_pointwise = jax.scipy.special.logsumexp(
+      loglik_pointwise_outofsample, axis=0) - jnp.log(
+          num_samples)  # colLogMeanExps
+  # Average over "observations" (samples from true generative model)
+  elpd_mc = elpd_mc_pointwise.mean(axis=-1)
+
+  return elpd_mc
 
 
 def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
@@ -349,9 +414,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   while state_list[0].step < config.training_steps:
 
     # Plots to monitor training
-    if ((state_list[0].step == 0) or
-        (state_list[0].step % config.log_img_steps == 0)):
-      # print("Logging images...\n")
+    if (state_list[0].step % config.log_img_steps == 0):
+      logging.info("\t\t Logging plots...")
       az_data = sample_q_as_az(
           lambda_tuple=tuple(x.params for x in state_list),
           dataset=train_ds,
@@ -373,6 +437,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           workdir_png=workdir,
           summary_writer=summary_writer,
       )
+      logging.info("\t\t...done logging plots.")
 
     # Log learning rate
     summary_writer.scalar(

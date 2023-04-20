@@ -6,6 +6,7 @@ from absl import logging
 
 import numpy as np
 
+import matplotlib
 from matplotlib import pyplot as plt
 
 from flax.metrics import tensorboard
@@ -21,20 +22,18 @@ from tensorflow_probability.substrates import jax as tfp
 import flows
 from flows import split_flow_nocut, split_flow_cut
 import plot
-from train_flow import load_data, sample_q_as_az
+from train_flow import load_data, sample_q_as_az, elpd_waic, elpd_truth_mc
 from log_prob_fun import (ModelParams, ModelParamsCut, SmiEta, logprob_joint,
                           sample_eta_values)
 
 import modularbayes
-from modularbayes import (sample_q_nocut, sample_q_cutgivennocut,
+from modularbayes import (sample_q, sample_q_nocut, sample_q_cutgivennocut,
                           elbo_smi_vmpmap)
-from modularbayes import (flatten_dict, plot_to_image, initial_state_ckpt,
-                          update_states, save_checkpoint)
+from modularbayes import (flatten_dict, initial_state_ckpt, update_states,
+                          save_checkpoint, plot_to_image, normalize_images)
 from modularbayes._src.utils.training import TrainState
 from modularbayes._src.typing import (Any, Array, Callable, ConfigDict, Dict,
                                       List, Optional, PRNGKey, Tuple)
-
-kernels = tfp.math.psd_kernels
 
 # Set high precision for matrix multiplication in jax
 jax.config.update('jax_default_matmul_precision', 'float32')
@@ -69,6 +68,112 @@ def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
   return loss_avg
 
 
+def plot_elpd_surface(
+    state_list: List[TrainState],
+    dataset: Dict[str, Any],
+    prng_key: PRNGKey,
+    config: ConfigDict,
+    vmpmap_fn: hk.Transformed,
+    lambda_init_list: List[hk.Params],
+    flow_get_fn_nocut: Callable,
+    flow_get_fn_cutgivennocut: Callable,
+    eta_grid: Array,
+    eta_grid_x_y_idx: Tuple[int, int],
+    true_params: Optional[ModelParams] = None,
+):
+  """Visualize ELPD surface as function of eta."""
+
+  assert eta_grid.ndim == 3
+  prng_seq = hk.PRNGSequence(prng_key)
+
+  num_groups = eta_grid.shape[-1]
+
+  # Jit functions for speed
+  elpd_waic_jit = jax.jit(elpd_waic)
+  elpd_truth_mc_jit = jax.jit(elpd_truth_mc)
+  sample_q_key_ = next(prng_seq)
+  sample_q_jit = jax.jit(lambda x: sample_q(
+      lambda_tuple=x,
+      prng_key=sample_q_key_,  # same seed for all etas, see less variability
+      flow_get_fn_nocut=flow_get_fn_nocut,
+      flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
+      flow_kwargs=config.flow_kwargs,
+      model_params_tupleclass=ModelParams,
+      split_flow_fn_nocut=split_flow_nocut,
+      split_flow_fn_cut=split_flow_cut,
+      sample_shape=(config.num_samples_elpd,),
+  )['model_params_sample'])
+
+  # Produce flow parameters as a function of eta
+  lambda_tuple = [
+      vmpmap_fn.apply(
+          state_i.params,
+          eta_values=eta_grid.reshape(-1, num_groups),
+          lambda_init=lambda_i,
+      ) for state_i, lambda_i in zip(state_list, lambda_init_list)
+  ]
+  if true_params is not None:
+    # Generate data from true model
+    z = jax.random.normal(
+        key=next(prng_seq), shape=(config.num_samples_elpd, num_groups))
+    y_new = true_params.sigma * z + true_params.beta
+  elpd_waic_grid = []
+  if true_params is not None:
+    elpd_grid = []
+  for i, eta_i in enumerate(eta_grid.reshape(-1, num_groups)):
+    # Sample from flow
+    model_params_sample_i = sample_q_jit(
+        jax.tree_map(lambda x: x[i], lambda_tuple))
+
+    # Compute ELPD using WAIC
+    elpd_waic_grid.append(
+        elpd_waic_jit(
+            model_params_sample=model_params_sample_i, dataset=dataset))
+    if true_params is not None:
+      # Compute ELPD
+      elpd_grid.append(
+          elpd_truth_mc_jit(
+              model_params_sample=model_params_sample_i, y_new=y_new))
+
+  # Plot the ELPD surface.
+  fig, axs = plt.subplots(
+      nrows=1,
+      ncols=1 if true_params is None else 2,
+      figsize=(4 if true_params is None else 8, 3),
+      subplot_kw={"projection": "3d"},
+      squeeze=False)
+  elpd_waic_grid = jnp.array(elpd_waic_grid).reshape(eta_grid.shape[:-1])
+  axs[0, 0].plot_surface(
+      eta_grid[..., eta_grid_x_y_idx[0]],
+      eta_grid[..., eta_grid_x_y_idx[1]],
+      -elpd_waic_grid,
+      cmap=matplotlib.cm.inferno,
+      # linewidth=0,
+      # antialiased=False,
+  )
+  axs[0, 0].view_init(30, 225)
+  axs[0, 0].set_xlabel(f'eta_{eta_grid_x_y_idx[0]}')
+  axs[0, 0].set_ylabel(f'eta_{eta_grid_x_y_idx[1]}')
+  axs[0, 0].set_title('- ELPD WAIC')
+  if true_params is not None:
+    elpd_grid = jnp.array(elpd_grid).reshape(eta_grid.shape[:-1])
+    axs[0, 1].plot_surface(
+        eta_grid[..., eta_grid_x_y_idx[0]],
+        eta_grid[..., eta_grid_x_y_idx[1]],
+        -elpd_grid,
+        cmap=matplotlib.cm.inferno,
+        # linewidth=0,
+        # antialiased=False,
+    )
+    axs[0, 1].view_init(30, 225)
+    axs[0, 1].set_xlabel(f'eta_{eta_grid_x_y_idx[0]}')
+    axs[0, 1].set_ylabel(f'eta_{eta_grid_x_y_idx[1]}')
+    axs[0, 1].set_title('- ELPD')
+  fig.tight_layout()
+
+  return fig, axs
+
+
 def log_images(
     state_list: Tuple[TrainState],
     prng_key: PRNGKey,
@@ -79,10 +184,14 @@ def log_images(
     lambda_init_list: List[hk.Params],
     flow_get_fn_nocut: Callable,
     flow_get_fn_cutgivennocut: Callable,
+    show_elpd_surface: bool,
+    true_params: ModelParams,
     summary_writer: Optional[tensorboard.SummaryWriter] = None,
     workdir_png: Optional[str] = None,
 ) -> None:
   """Plots to monitor during training."""
+
+  model_name = 'random_effects'
 
   prng_seq = hk.PRNGSequence(prng_key)
 
@@ -124,6 +233,75 @@ def log_images(
         workdir_png=workdir_png,
         summary_writer=summary_writer,
     )
+
+  if show_elpd_surface:
+    eta_grid_len = 10
+    images = []
+
+    # Define elements to grate grid of eta values
+    eta_grid_base = np.tile(
+        np.array([0., 0.] + [1. for _ in range(config.num_groups)]),
+        [eta_grid_len + 1, eta_grid_len + 1, 1])
+    eta_grid_mini = np.stack(
+        np.meshgrid(
+            np.linspace(0, 1, eta_grid_len + 1).round(5),
+            np.linspace(0, 1, eta_grid_len + 1).round(5)),
+        axis=0).T
+
+    # Vary eta_0 and eta_1
+    plot_name = f'{model_name}_elpd_surface_eta_0_1'
+    eta_grid = eta_grid_base.copy()
+    eta_grid_x_y_idx = [0, 1]
+    eta_grid[:, :, eta_grid_x_y_idx] = eta_grid_mini
+    fig, _ = plot_elpd_surface(
+        state_list=state_list,
+        dataset=dataset,
+        prng_key=next(prng_seq),
+        config=config,
+        vmpmap_fn=vmpmap_fn,
+        lambda_init_list=lambda_init_list,
+        flow_get_fn_nocut=flow_get_fn_nocut,
+        flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
+        eta_grid=eta_grid,
+        eta_grid_x_y_idx=eta_grid_x_y_idx,
+        true_params=true_params,
+    )
+    if workdir_png:
+      fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
+    if summary_writer:
+      images.append(plot_to_image(fig))
+
+    # Vary eta_0 and eta_2
+    plot_name = f'{model_name}_elpd_surface_eta_0_2'
+    eta_grid = eta_grid_base.copy()
+    eta_grid_x_y_idx = [0, 2]
+    eta_grid[:, :, eta_grid_x_y_idx] = eta_grid_mini
+    fig, _ = plot_elpd_surface(
+        state_list=state_list,
+        dataset=dataset,
+        prng_key=next(prng_seq),
+        config=config,
+        vmpmap_fn=vmpmap_fn,
+        lambda_init_list=lambda_init_list,
+        flow_get_fn_nocut=flow_get_fn_nocut,
+        flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
+        eta_grid=eta_grid,
+        eta_grid_x_y_idx=eta_grid_x_y_idx,
+        true_params=true_params,
+    )
+    if workdir_png:
+      fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
+    if summary_writer:
+      images.append(plot_to_image(fig))
+
+    if summary_writer:
+      plot_name = f"{model_name}_elpd_surface"
+      summary_writer.image(
+          tag=plot_name,
+          image=normalize_images(images),
+          step=state_list[0].step,
+          max_outputs=len(images),
+      )
 
 
 def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
@@ -237,7 +415,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           forward_fn=vmpmap_fn,
           forward_fn_kwargs={
               'eta_values':
-                  jnp.ones((config.num_samples_eta, config.smi_eta_dim)),
+                  jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
               'lambda_init':
                   lambda_init_i
           },
@@ -252,7 +430,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   tabulate_fn_ = hk.experimental.tabulate(
       f=lambda state_i, lambda_init_i: vmpmap_fn.apply(
           state_i.params,
-          eta_values=jnp.ones((config.num_samples_eta, config.smi_eta_dim)),
+          eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
           lambda_init=lambda_init_i),
       columns=(
           "module",
@@ -282,7 +460,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         optimizer=make_optimizer(**config.optim_kwargs),
         loss_fn=loss,
         loss_fn_kwargs={
-            'num_samples': config.num_samples_eta,
+            'num_samples': config.num_samples_elbo,
             'vmpmap_fn': vmpmap_fn,
             'lambda_init_tuple': tuple(lambda_init_list),
             'sample_eta_fn': sample_eta_values,
@@ -315,9 +493,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
     # Plots to monitor training
     if (config.log_img_steps
-        is not None) and ((state_list[0].step == 1) or
-                          (state_list[0].step % config.log_img_steps == 0)):
-      # print("Logging images...\n")
+        is not None) and (state_list[0].step % config.log_img_steps == 0):
+      logging.info("\t\t Logging plots...")
       log_images(
           state_list=state_list,
           prng_key=next(prng_seq),
@@ -328,10 +505,13 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           lambda_init_list=lambda_init_list,
           flow_get_fn_nocut=flow_get_fn_nocut,
           flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
+          show_elpd_surface=True,
+          true_params=true_params,
           summary_writer=summary_writer,
           workdir_png=workdir,
       )
       plt.close()
+      logging.info("\t\t...done logging plots.")
 
     # Log learning rate
     summary_writer.scalar(
@@ -396,6 +576,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       lambda_init_list=lambda_init_list,
       flow_get_fn_nocut=flow_get_fn_nocut,
       flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
+      show_elpd_surface=True,
+      true_params=true_params,
       summary_writer=summary_writer,
       workdir_png=workdir,
   )

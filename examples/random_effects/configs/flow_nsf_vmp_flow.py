@@ -36,11 +36,11 @@ def get_config():
   # the upper bound of the spline's range
   config.flow_kwargs.range_max = 40.
 
-  config.num_samples_elbo = 10
+  config.num_samples_elbo = 100
   config.num_samples_eval = 10_000
 
   # Number of training steps to run.
-  config.training_steps = 200_000
+  config.training_steps = 100_000
 
   # Number of SGD steps to find the best eta
   config.eta_star_steps = 5_000
@@ -78,7 +78,7 @@ def get_config():
   # Number of posteriors samples used in the plots.
   config.num_samples_plot = 40_000
 
-  config.num_samples_elpd = 1_000
+  config.num_samples_elpd = 40_000
 
   config.smi_eta_dim = config.num_groups
   config.smi_eta_plot = {

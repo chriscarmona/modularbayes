@@ -99,10 +99,12 @@ def sample_eta_values(
     eta_sampling_b: float,
 ) -> SmiEta:
   """Generate a sample of the smi_eta values applicable to the model."""
-  smi_etas = SmiEta(
-      groups=jax.random.beta(
-          key=prng_key,
-          a=eta_sampling_a,
-          b=eta_sampling_b,
-          shape=(num_samples, num_groups)),)
+  smi_etas = jax.random.beta(
+      key=prng_key,
+      a=eta_sampling_a,
+      b=eta_sampling_b,
+      shape=(num_samples, num_groups))
+  # smi_etas = jnp.concatenate(
+  #     [smi_etas, jnp.ones((num_samples, num_groups - 3))], axis=-1)
+  smi_etas = SmiEta(groups=smi_etas)
   return smi_etas
