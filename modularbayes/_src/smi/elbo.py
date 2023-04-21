@@ -200,7 +200,7 @@ def elbo_smi_vmpmap(
       lambda_tuple=x,
       prng_key=y,
       smi_eta=z,
-      num_samples=1,
+      num_samples=1,  # Only one sample per eta value.
       batch=batch,
       **elbo_smi_kwargs,
   ))(lambda_tuple, jax.random.split(next(prng_seq), num_samples), smi_etas)

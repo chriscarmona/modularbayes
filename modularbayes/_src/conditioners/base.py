@@ -12,7 +12,9 @@ The transformation in a normalizing flow can be interpreted of two parts:
 In this script we define functions that can be used as conditioners.
 """
 
+import jax
 from jax import numpy as jnp
+
 import haiku as hk
 
 from modularbayes._src.typing import Optional, Sequence
@@ -68,7 +70,12 @@ class MLPConditioner(hk.Module):
   def __call__(self, inputs):
 
     out = hk.Flatten(preserve_dims=-1)(inputs)
-    out = hk.nets.MLP(self.hidden_sizes, activate_final=True)(out)
+    out = hk.nets.MLP(
+        output_sizes=self.hidden_sizes,
+        activate_final=True,
+        activation=jax.nn.swish,
+    )(
+        out)
 
     # We initialize this linear layer to zero so that the flow is initialized
     # to the identity function.

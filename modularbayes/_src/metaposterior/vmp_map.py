@@ -39,7 +39,7 @@ class MLPVmpMap(hk.Module):
         hk.Flatten(preserve_dims=-1),
         hk.nets.MLP(
             output_sizes=self.hidden_sizes,
-            activation=jax.nn.leaky_relu,
+            activation=jax.nn.swish,
             activate_final=True,
         ),
         hk.Linear(output_size=self.output_dim),
@@ -49,14 +49,14 @@ class MLPVmpMap(hk.Module):
     # out1 = hk.Flatten(preserve_dims=-1)(eta)
     # out1 = hk.nets.MLP(
     #     self.hidden_sizes,
-    #     activation=jax.nn.leaky_relu,
+    #     activation=jax.nn.swish,
     #     activate_final=True,
     # )(
     #     out1)
     # out2 = hk.Flatten(preserve_dims=-1)(eta)
     # out2 = hk.nets.MLP(
     #     self.hidden_sizes[-1:],
-    #     activation=jax.nn.leaky_relu,
+    #     activation=jax.nn.swish,
     #     activate_final=True,
     # )(
     #     out2)

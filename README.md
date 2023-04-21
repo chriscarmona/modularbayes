@@ -29,8 +29,7 @@ bash examples/run.sh
 ```
 Results produced during the optimization can be monitored in [Tensorboard](https://www.tensorflow.org/tensorboard):
 ```bash
-WORK_DIR=$HOME/modularbayes-output
-tensorboard --logdir=$WORK_DIR
+tensorboard --logdir=$HOME/modularbayes-output
 ```
 
 ## Installation instructions
