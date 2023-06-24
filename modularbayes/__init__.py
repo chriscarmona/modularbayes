@@ -1,6 +1,6 @@
 """modularbayes: Variational methods for Bayesian Semi-Modular Inference."""
 
-__version__ = '0.1.3'
+__version__ = '0.1.4'
 
 from modularbayes._src.bijectors.blockwise import Blockwise
 from modularbayes._src.bijectors.conditional_bijector import ConditionalBijector
