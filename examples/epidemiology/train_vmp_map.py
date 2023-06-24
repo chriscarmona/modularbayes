@@ -8,33 +8,27 @@ import numpy as np
 
 from matplotlib import pyplot as plt
 
-from flax.metrics import tensorboard
-
 import jax
 from jax import numpy as jnp
-
+from flax.metrics import tensorboard
+from flax.training.train_state import TrainState
 import haiku as hk
 import optax
-
-from tensorflow_probability.substrates import jax as tfp
+import orbax.checkpoint
 
 import flows
 from flows import split_flow_nocut, split_flow_cut
+from log_prob_fun import (logprob_joint, sample_eta_values, ModelParams,
+                          ModelParamsCut, SmiEta)
 import plot
-from train_flow import load_data, sample_q_as_az
-from log_prob_fun import (ModelParams, ModelParamsCut, SmiEta, logprob_joint,
-                          sample_eta_values)
+from train_flow import init_state_tuple, load_data, sample_q_as_az
 
 import modularbayes
-from modularbayes import (sample_q_nocut, sample_q_cutgivennocut,
-                          elbo_smi_vmpmap)
-from modularbayes import (flatten_dict, plot_to_image, initial_state_ckpt,
-                          update_states, save_checkpoint)
-from modularbayes._src.utils.training import TrainState
+from modularbayes import (elbo_smi_vmpmap, flatten_dict, plot_to_image,
+                          train_step)
 from modularbayes._src.typing import (Any, Array, Callable, ConfigDict, Dict,
-                                      List, Optional, PRNGKey, Tuple)
-
-kernels = tfp.math.psd_kernels
+                                      Optional, PRNGKey, SmiPosteriorStates,
+                                      Tuple)
 
 # Set high precision for matrix multiplication in jax
 jax.config.update('jax_default_matmul_precision', 'float32')
@@ -57,7 +51,37 @@ def make_optimizer(
   return optimizer
 
 
-def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
+def print_trainable_params(
+    state_tuple: Tuple[TrainState],
+    config: ConfigDict,
+    lambda_init_tuple: Tuple,
+) -> None:
+  """Print a summary of the trainable parameters."""
+  tabulate_fn_ = hk.experimental.tabulate(
+      f=lambda state_i, lambda_init_i: state_i.apply_fn(
+          state_i.params,
+          eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
+          lambda_init=lambda_init_i),
+      columns=(
+          "module",
+          "owned_params",
+          "params_size",
+          "params_bytes",
+      ),
+      filters=("has_params",),
+  )
+  summary = tabulate_fn_(state_tuple[0], lambda_init_tuple[0])
+  logging.info('VMP-MAP no-cut parameters:')
+  for line in summary.split("\n"):
+    logging.info(line)
+
+  summary = tabulate_fn_(state_tuple[1], lambda_init_tuple[1])
+  logging.info('VMP-MAP cut parameters:')
+  for line in summary.split("\n"):
+    logging.info(line)
+
+
+def loss_fn(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
   """Define training loss function."""
 
   # Compute ELBO.
@@ -70,13 +94,13 @@ def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
 
 
 def log_images(
-    state_list: Tuple[TrainState],
+    state_tuple: Tuple[TrainState],
     prng_key: PRNGKey,
     config: ConfigDict,
     dataset: Dict[str, Any],
     num_samples_plot: int,
     vmpmap_fn: hk.Transformed,
-    lambda_init_list: List[hk.Params],
+    lambda_init_tuple: Tuple[hk.Params],
     flow_get_fn_nocut: Callable,
     flow_get_fn_cutgivennocut: Callable,
     vmpmap_curves_idx: Tuple[int],
@@ -100,11 +124,11 @@ def log_images(
       smi_etas[0] if len(smi_etas) == 1 else jnp.stack(smi_etas, axis=-1))
   # Produce flow parameters as a function of eta
   lambda_tuple = [
-      vmpmap_fn.apply(
+      state_i.apply_fn(
           state_i.params,
           eta_values=eta_values,
           lambda_init=lambda_i,
-      ) for state_i, lambda_i in zip(state_list, lambda_init_list)
+      ) for state_i, lambda_i in zip(state_tuple, lambda_init_tuple)
   ]
 
   # Sample from flows and plot, one eta at a time
@@ -126,7 +150,7 @@ def log_images(
         show_theta_pairplot=True,
         eta=eta_i,
         suffix=f"_eta_cancer_{float(eta_i):.3f}",
-        step=state_list[0].step,
+        step=state_tuple[0].step,
         workdir_png=workdir_png,
         summary_writer=summary_writer,
     )
@@ -134,13 +158,13 @@ def log_images(
   # Plot a few curves representing the VMP map for the no-cut parameters
   model_name = 'epidemiology'
   fig, _ = plot.plot_vmp_map(
-      alpha=state_list[0].params,
+      alpha=state_tuple[0].params,
       vmpmap_fn=vmpmap_fn,
-      lambda_init=lambda_init_list[0],
+      lambda_init=lambda_init_tuple[0],
       lambda_idx_to_plot=vmpmap_curves_idx,
       eta_cancer_grid=jnp.linspace(0.0, 1.0, 101).round(3),
   )
-  fig.suptitle(f"Example of VMP map curves")
+  fig.suptitle("Example of VMP map curves")
   fig.tight_layout()
   if workdir_png:
     plot_name = f"{model_name}_vmpmap_example_curves"
@@ -151,7 +175,7 @@ def log_images(
     summary_writer.image(
         tag=plot_name,
         image=image,
-        step=state_list[0].step,
+        step=state_tuple[0].step,
     )
 
 
@@ -196,48 +220,17 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   flow_get_fn_cutgivennocut = getattr(flows,
                                       'get_q_cutgivennocut_' + config.flow_name)
 
-  checkpoint_dir = str(pathlib.Path(workdir) / 'checkpoints')
-  state_list = []
-  state_name_list = []
-  lambda_init_list = []
-
   # To initialize the VMP-map, we need one example of its output
   # The output of the VMP-map is lambda, the parameters of the variational posterior
-  state_name_list.append('alpha_nocut')
-  lambda_init_list.append(
-      sample_q_nocut.init(
-          next(prng_seq),
-          flow_get_fn=flow_get_fn_nocut,
-          flow_kwargs=config.flow_kwargs,
-          split_flow_fn=split_flow_nocut,
-          sample_shape=(config.num_samples_elbo,),
-      ))
-  nocut_base_sample_init = sample_q_nocut.apply(
-      lambda_init_list[0],
-      next(prng_seq),
-      flow_get_fn=flow_get_fn_nocut,
-      flow_kwargs=config.flow_kwargs,
-      split_flow_fn=split_flow_nocut,
+  lambda_init_tuple = init_state_tuple(
+      prng_key=next(prng_seq),
+      config=config,
+      flow_get_fn_nocut=flow_get_fn_nocut,
+      flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
       sample_shape=(config.num_samples_elbo,),
-  )['sample_base']
-  state_name_list.append('alpha_cut')
-  lambda_init_list.append(
-      sample_q_cutgivennocut.init(
-          next(prng_seq),
-          flow_get_fn=flow_get_fn_cutgivennocut,
-          flow_kwargs=config.flow_kwargs,
-          split_flow_fn=split_flow_cut,
-          nocut_base_sample=nocut_base_sample_init,
-      ))
-  state_name_list.append('alpha_cut_aux')
-  lambda_init_list.append(
-      sample_q_cutgivennocut.init(
-          next(prng_seq),
-          flow_get_fn=flow_get_fn_cutgivennocut,
-          flow_kwargs=config.flow_kwargs,
-          split_flow_fn=split_flow_cut,
-          nocut_base_sample=nocut_base_sample_init,
-      ))
+      eta_values=None,
+  )
+  lambda_init_tuple = [x.params for x in lambda_init_tuple]
 
   # Define function that produce a tuple of lambda (flow parameters)
   @hk.without_apply_rng
@@ -249,60 +242,57 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     return lambda_out
 
   ### Initialise Variational Meta-Posterior Map ###
-  state_list = [
-      initial_state_ckpt(
-          checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
-          forward_fn=vmpmap_fn,
-          forward_fn_kwargs={
-              'eta_values':
-                  jnp.ones((config.num_samples_eta, config.smi_eta_dim)),
-              'lambda_init':
-                  lambda_init_i
-          },
-          prng_key=next(prng_seq),
-          optimizer=make_optimizer(**config.optim_kwargs),
-      )
-      for state_name_i, lambda_init_i in zip(state_name_list, lambda_init_list)
+  params_tuple_ = [
+      vmpmap_fn.init(
+          next(prng_seq),
+          eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
+          lambda_init=lambda_init_) for lambda_init_ in lambda_init_tuple
   ]
-  # globals().update(forward_fn_kwargs)
+  state_tuple = SmiPosteriorStates(*[
+      TrainState.create(
+          apply_fn=vmpmap_fn.apply,
+          params=params_,
+          tx=make_optimizer(**config.optim_kwargs),
+      ) for params_ in params_tuple_
+  ])
 
-  # Print a useful summary of the execution of the VHP-map architecture.
-  tabulate_fn_ = hk.experimental.tabulate(
-      f=lambda state_i, lambda_init_i: vmpmap_fn.apply(
-          state_i.params,
-          eta_values=jnp.ones((config.num_samples_eta, config.smi_eta_dim)),
-          lambda_init=lambda_init_i),
-      columns=(
-          "module",
-          "owned_params",
-          "params_size",
-          "params_bytes",
-      ),
-      filters=("has_params",),
+  print_trainable_params(
+      state_tuple=state_tuple,
+      config=config,
+      lambda_init_tuple=lambda_init_tuple,
   )
-  summary = tabulate_fn_(state_list[0], lambda_init_list[0])
-  logging.info('VMP-MAP no-cut parameters:')
-  for line in summary.split("\n"):
-    logging.info(line)
 
-  summary = tabulate_fn_(state_list[1], lambda_init_list[1])
-  logging.info('VMP-MAP cut parameters:')
-  for line in summary.split("\n"):
-    logging.info(line)
+  # Create checkpoint managers for the three states
+  orbax_ckpt_mngrs = [
+      orbax.checkpoint.CheckpointManager(
+          directory=str(pathlib.Path(workdir) / 'checkpoints' / state_name),
+          checkpointers=orbax.checkpoint.PyTreeCheckpointer(),
+          options=orbax.checkpoint.CheckpointManagerOptions(
+              max_to_keep=1,
+              save_interval_steps=config.checkpoint_steps,
+          ),
+      ) for state_name in state_tuple._asdict()
+  ]
 
-  ### Training VMP map ###
+  # Restore existing checkpoint if present
+  if orbax_ckpt_mngrs[0].latest_step() is not None:
+    state_tuple = [
+        mngr.restore(mngr.latest_step(), items=state)
+        for state, mngr in zip(state_tuple, orbax_ckpt_mngrs)
+    ]
+
+  # Jit function to update training states
   @jax.jit
-  def update_states_jit(state_list, batch, prng_key):
-    return update_states(
-        state_list=state_list,
+  def train_step_jit(state_tuple, batch, prng_key):
+    return train_step(
+        state_tuple=state_tuple,
         batch=batch,
         prng_key=prng_key,
-        optimizer=make_optimizer(**config.optim_kwargs),
-        loss_fn=loss,
-        loss_fn_kwargs={
-            'num_samples': config.num_samples_eta,
+        loss=loss_fn,
+        loss_kwargs={
+            'num_samples': config.num_samples_elbo,
             'vmpmap_fn': vmpmap_fn,
-            'lambda_init_tuple': tuple(lambda_init_list),
+            'lambda_init_tuple': lambda_init_tuple,
             'sample_eta_fn': sample_eta_values,
             'sample_eta_kwargs': {
                 'eta_sampling_a': config.eta_sampling_a,
@@ -322,27 +312,26 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         },
     )
 
-  if state_list[0].step < config.training_steps:
+  if state_tuple[0].step < config.training_steps:
     logging.info('Training Variational Meta-Posterior (VMP-map)...')
 
   # Reset random key sequence
   prng_seq = hk.PRNGSequence(config.seed)
 
-  while state_list[0].step < config.training_steps:
+  while state_tuple[0].step < config.training_steps:
 
     # Plots to monitor training
     if (config.log_img_steps
-        is not None) and ((state_list[0].step == 1) or
-                          (state_list[0].step % config.log_img_steps == 0)):
-      # print("Logging images...\n")
+        is not None) and (state_tuple[0].step % config.log_img_steps == 0):
+      logging.info("\t\t Logging plots...")
       log_images(
-          state_list=state_list,
+          state_tuple=state_tuple,
           prng_key=next(prng_seq),
           config=config,
           dataset=train_ds,
           num_samples_plot=config.num_samples_plot,
           vmpmap_fn=vmpmap_fn,
-          lambda_init_list=lambda_init_list,
+          lambda_init_tuple=lambda_init_tuple,
           flow_get_fn_nocut=flow_get_fn_nocut,
           flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
           vmpmap_curves_idx=config.vmpmap_curves_idx,
@@ -350,68 +339,58 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           workdir_png=workdir,
       )
       plt.close()
+      logging.info("\t\t...done logging plots.")
 
     # Log learning rate
     summary_writer.scalar(
         tag='learning_rate',
         value=getattr(optax, config.optim_kwargs.lr_schedule_name)(
-            **config.optim_kwargs.lr_schedule_kwargs)(state_list[0].step),
-        step=state_list[0].step,
+            **config.optim_kwargs.lr_schedule_kwargs)(state_tuple[0].step),
+        step=state_tuple[0].step,
     )
 
-    state_list, metrics = update_states_jit(
-        state_list=state_list,
+    # SGD step
+    state_tuple_, metrics = train_step_jit(
+        state_tuple=state_tuple,
         batch=train_ds,
         prng_key=next(prng_seq),
     )
+    if jax.lax.is_finite(metrics['train_loss']):
+      state_tuple = state_tuple_
 
     # The computed training loss would correspond to the model before update
     summary_writer.scalar(
         tag='train_loss',
         value=metrics['train_loss'],
-        step=state_list[0].step - 1,
+        step=state_tuple[0].step - 1,
     )
 
-    if state_list[0].step == 2:
-      logging.info("STEP: %5d; training loss: %.3f", state_list[0].step - 1,
+    if state_tuple[0].step == 2:
+      logging.info("STEP: %5d; training loss: %.3f", state_tuple[0].step - 1,
                    metrics["train_loss"])
 
-    if state_list[0].step % config.eval_steps == 0:
-      logging.info("STEP: %5d; training loss: %.3f", state_list[0].step - 1,
+    if state_tuple[0].step % config.eval_steps == 0:
+      logging.info("STEP: %5d; training loss: %.3f", state_tuple[0].step - 1,
                    metrics["train_loss"])
 
     # Save checkpoints
-    if (state_list[0].step) % config.checkpoint_steps == 0:
-      for state_i, state_name_i in zip(state_list, state_name_list):
-        save_checkpoint(
-            state=state_i,
-            checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
-            keep=config.checkpoints_keep,
-        )
+    for state, mngr in zip(state_tuple, orbax_ckpt_mngrs):
+      mngr.save(step=int(state.step), items=state)
 
     # Wait until computations are done before the next step
     # jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
 
-  logging.info('Final training step: %i', state_list[0].step)
-
-  # Save checkpoints at the end of the training process
-  # (in case training_steps is not multiple of checkpoint_steps)
-  for state_i, state_name_i in zip(state_list, state_name_list):
-    save_checkpoint(
-        state=state_i,
-        checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
-        keep=config.checkpoints_keep,
-    )
+  logging.info('Final training step: %i', state_tuple[0].step)
 
   # Last plot of posteriors
   log_images(
-      state_list=state_list,
+      state_tuple=state_tuple,
       prng_key=next(prng_seq),
       config=config,
       dataset=train_ds,
       num_samples_plot=config.num_samples_plot,
       vmpmap_fn=vmpmap_fn,
-      lambda_init_list=lambda_init_list,
+      lambda_init_tuple=lambda_init_tuple,
       flow_get_fn_nocut=flow_get_fn_nocut,
       flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
       vmpmap_curves_idx=config.vmpmap_curves_idx,
@@ -420,7 +399,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   )
   plt.close()
 
-  return state_list
+  return state_tuple
 
 
 # # For debugging

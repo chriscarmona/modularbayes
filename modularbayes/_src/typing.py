@@ -5,6 +5,8 @@ from typing import (Any, Callable, Dict, Iterable, Iterator, List, Mapping,
 
 from pathlib import Path, PosixPath
 
+from collections import namedtuple
+
 import jax
 
 import numpy as np
@@ -34,6 +36,11 @@ RangeFloat = Tuple[float, float]
 RangeInt = Tuple[int, Union[int, None]]
 
 Kernel = tfp.math.psd_kernels.PositiveSemidefiniteKernel
+
+SmiPosteriorStates = namedtuple(
+    "smi_posterior_states",
+    field_names=('no_cut', 'cut', 'cut_aux'),
+)
 
 __all__ = [
     'Any',

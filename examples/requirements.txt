@@ -3,3 +3,4 @@ git+https://github.com/blackjax-devs/blackjax
 git+https://github.com/deepmind/distrax
 modularbayes
 pandas
+orbax-checkpoint

@@ -66,26 +66,28 @@ class MLPConditioner(hk.Module):
     self.output_dim = output_dim
     self.hidden_sizes = hidden_sizes
     self.num_bijector_params = num_bijector_params
+    layers = [
+        hk.Flatten(preserve_dims=-1),
+        hk.nets.MLP(
+            output_sizes=self.hidden_sizes,
+            activate_final=True,
+        ),
+        # We initialize this linear layer to zero so that the flow is initialized
+        # to the identity function.
+        hk.Linear(
+            self.output_dim * self.num_bijector_params,
+            w_init=jnp.zeros,
+            b_init=jnp.zeros,
+        ),
+        hk.Reshape(
+            (self.output_dim,) + (self.num_bijector_params,),
+            preserve_dims=-1,
+        )
+    ]
+    self.layers = tuple(layers)
 
   def __call__(self, inputs):
-
-    out = hk.Flatten(preserve_dims=-1)(inputs)
-    out = hk.nets.MLP(
-        output_sizes=self.hidden_sizes,
-        activate_final=True,
-        activation=jax.nn.swish,
-    )(
-        out)
-
-    # We initialize this linear layer to zero so that the flow is initialized
-    # to the identity function.
-    out = hk.Linear(
-        self.output_dim * self.num_bijector_params,
-        w_init=jnp.zeros,
-        b_init=jnp.zeros)(
-            out)
-    out = hk.Reshape(
-        (self.output_dim,) + (self.num_bijector_params,), preserve_dims=-1)(
-            out)
-
+    out = inputs
+    for layer in self.layers:
+      out = layer(out)
     return out

@@ -6,30 +6,24 @@ from absl import logging
 
 import numpy as np
 
-from arviz import InferenceData
-
-from flax.metrics import tensorboard
-
 import jax
 from jax import numpy as jnp
-
+from flax.metrics import tensorboard
+from flax.training.train_state import TrainState
 import haiku as hk
 import optax
+import orbax.checkpoint
 
 import flows
 from flows import split_flow_nocut, split_flow_cut
 from log_prob_fun import (ModelParams, ModelParamsCut, SmiEta, logprob_joint,
                           sample_eta_values)
 import plot
-from train_flow import load_data, make_optimizer, sample_q_as_az
-
-from modularbayes import (sample_q_nocut, sample_q_cutgivennocut,
-                          elbo_smi_vmpflow)
-from modularbayes._src.utils.training import TrainState
-from modularbayes import (flatten_dict, initial_state_ckpt, update_states,
-                          save_checkpoint)
+from train_flow import (init_state_tuple, load_data, print_trainable_params,
+                        sample_q_as_az)
+from modularbayes import elbo_smi_vmpflow, flatten_dict, train_step
 from modularbayes._src.typing import (Any, Array, Callable, ConfigDict, Dict,
-                                      List, Optional, PRNGKey, Tuple)
+                                      Optional, PRNGKey, Tuple)
 
 # Set high precision for matrix multiplication in jax
 jax.config.update('jax_default_matmul_precision', 'float32')
@@ -37,7 +31,7 @@ jax.config.update('jax_default_matmul_precision', 'float32')
 np.set_printoptions(suppress=True, precision=4)
 
 
-def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
+def loss_fn(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
   """Define training loss function."""
 
   ### Compute ELBO ###
@@ -50,7 +44,7 @@ def loss(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
 
 
 def log_images(
-    state_list: List[TrainState],
+    state_tuple: Tuple[TrainState],
     prng_key: PRNGKey,
     config: ConfigDict,
     dataset: Dict[str, Any],
@@ -77,7 +71,7 @@ def log_images(
     )
     # Sample from flow
     az_data = sample_q_as_az(
-        lambda_tuple=tuple(x.params for x in state_list),
+        lambda_tuple=tuple(x.params for x in state_tuple),
         dataset=dataset,
         prng_key=next(prng_seq),
         flow_get_fn_nocut=flow_get_fn_nocut,
@@ -94,14 +88,14 @@ def log_images(
         show_theta_pairplot=True,
         eta=eta_cancer_i,
         suffix=f"_eta_cancer_{float(eta_cancer_i):.3f}",
-        step=state_list[0].step,
+        step=state_tuple[0].step,
         workdir_png=workdir_png,
         summary_writer=summary_writer,
     )
 
 
 def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
-  """Execute model training and evaluation loop.
+  """Model training and evaluation.
 
   Args:
     config: Hyperparameter configuration for training and evaluation.
@@ -145,137 +139,55 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   flow_get_fn_cutgivennocut = getattr(flows,
                                       'get_q_cutgivennocut_' + config.flow_name)
 
-  checkpoint_dir = str(pathlib.Path(workdir) / 'checkpoints')
-  state_list = []
-  state_name_list = []
-
-  state_name_list.append('lambda_nocut')
-  state_list.append(
-      initial_state_ckpt(
-          checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
-          forward_fn=sample_q_nocut,
-          forward_fn_kwargs={
-              'flow_get_fn':
-                  flow_get_fn_nocut,
-              'flow_kwargs':
-                  config.flow_kwargs,
-              'split_flow_fn':
-                  split_flow_nocut,
-              'eta_values':
-                  jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
-          },
-          prng_key=next(prng_seq),
-          optimizer=make_optimizer(**config.optim_kwargs),
-      ))
-
-  # Get an initial sample of the base distribution of nocut params
-  nocut_base_sample_init = sample_q_nocut.apply(
-      state_list[0].params,
-      next(prng_seq),
-      flow_get_fn=flow_get_fn_nocut,
-      flow_kwargs=config.flow_kwargs,
-      split_flow_fn=split_flow_nocut,
+  # Initialize States of the three flows
+  state_tuple = init_state_tuple(
+      prng_key=next(prng_seq),
+      config=config,
+      flow_get_fn_nocut=flow_get_fn_nocut,
+      flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
+      sample_shape=None,
       eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
-  )['sample_base']
-
-  state_name_list.append('lambda_cut')
-  state_list.append(
-      initial_state_ckpt(
-          checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
-          forward_fn=sample_q_cutgivennocut,
-          forward_fn_kwargs={
-              'flow_get_fn':
-                  flow_get_fn_cutgivennocut,
-              'flow_kwargs':
-                  config.flow_kwargs,
-              'split_flow_fn':
-                  split_flow_cut,
-              'nocut_base_sample':
-                  nocut_base_sample_init,
-              'eta_values':
-                  jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
-          },
-          prng_key=next(prng_seq),
-          optimizer=make_optimizer(**config.optim_kwargs),
-      ))
-  if config.flow_kwargs.is_smi:
-    state_name_list.append('lambda_cut_aux')
-    state_list.append(
-        initial_state_ckpt(
-            checkpoint_dir=f'{checkpoint_dir}/{state_name_list[-1]}',
-            forward_fn=sample_q_cutgivennocut,
-            forward_fn_kwargs={
-                'flow_get_fn':
-                    flow_get_fn_cutgivennocut,
-                'flow_kwargs':
-                    config.flow_kwargs,
-                'split_flow_fn':
-                    split_flow_cut,
-                'nocut_base_sample':
-                    nocut_base_sample_init,
-                'eta_values':
-                    jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
-            },
-            prng_key=next(prng_seq),
-            optimizer=make_optimizer(**config.optim_kwargs),
-        ))
-
-  # Print a useful summary of the execution of the flow architecture.
-  logging.info('\nFlow no-cut parameters:\n')
-  tabulate_fn_ = hk.experimental.tabulate(
-      f=lambda params, prng_key: sample_q_nocut.apply(
-          params,
-          prng_key,
-          flow_get_fn=flow_get_fn_nocut,
-          flow_kwargs=config.flow_kwargs,
-          split_flow_fn=split_flow_nocut,
-          eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
-      ),
-      columns=(
-          "module",
-          "owned_params",
-          "params_size",
-          "params_bytes",
-      ),
-      filters=("has_params",),
   )
-  summary = tabulate_fn_(state_list[0].params, next(prng_seq))
-  for line in summary.split("\n"):
-    logging.info(line)
 
-  logging.info('\nFlow cut parameters:\n')
-  tabulate_fn_ = hk.experimental.tabulate(
-      f=lambda params, prng_key: sample_q_cutgivennocut.apply(
-          params,
-          prng_key,
-          flow_get_fn=flow_get_fn_cutgivennocut,
-          flow_kwargs=config.flow_kwargs,
-          split_flow_fn=split_flow_cut,
-          nocut_base_sample=nocut_base_sample_init,
-          eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
-      ),
-      columns=(
-          "module",
-          "owned_params",
-          "params_size",
-          "params_bytes",
-      ),
-      filters=("has_params",),
+  # Print a summary of the networks architecture
+  print_trainable_params(
+      state_tuple=state_tuple,
+      prng_key=next(prng_seq),
+      config=config,
+      flow_get_fn_nocut=flow_get_fn_nocut,
+      flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
+      sample_shape=None,
+      eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
   )
-  summary = tabulate_fn_(state_list[1].params, next(prng_seq))
-  for line in summary.split("\n"):
-    logging.info(line)
+
+  # Create checkpoint managers for the three states
+  orbax_ckpt_mngrs = [
+      orbax.checkpoint.CheckpointManager(
+          directory=str(pathlib.Path(workdir) / 'checkpoints' / state_name),
+          checkpointers=orbax.checkpoint.PyTreeCheckpointer(),
+          options=orbax.checkpoint.CheckpointManagerOptions(
+              max_to_keep=1,
+              save_interval_steps=config.checkpoint_steps,
+          ),
+      ) for state_name in state_tuple._asdict()
+  ]
+
+  # Restore existing checkpoint if present
+  if orbax_ckpt_mngrs[0].latest_step() is not None:
+    state_tuple = [
+        mngr.restore(mngr.latest_step(), items=state)
+        for state, mngr in zip(state_tuple, orbax_ckpt_mngrs)
+    ]
 
   # Jit function to update training states
   @jax.jit
-  def update_states_jit(state_list, batch, prng_key):
-    return update_states(
-        state_list=state_list,
+  def train_step_jit(state_tuple, batch, prng_key):
+    return train_step(
+        state_tuple=state_tuple,
         batch=batch,
         prng_key=prng_key,
-        optimizer=make_optimizer(**config.optim_kwargs),
-        loss_fn=loss,
-        loss_fn_kwargs={
+        loss=loss_fn,
+        loss_kwargs={
             'num_samples': config.num_samples_elbo,
             'logprob_joint_fn': logprob_joint,
             'flow_get_fn_nocut': flow_get_fn_nocut,
@@ -295,9 +207,9 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     )
 
   @jax.jit
-  def elbo_validation_jit(state_list, batch, prng_key):
+  def elbo_validation_jit(state_tuple, batch, prng_key):
     return elbo_smi_vmpflow(
-        lambda_tuple=tuple(state.params for state in state_list),
+        lambda_tuple=tuple(state.params for state in state_tuple),
         batch=batch,
         prng_key=prng_key,
         num_samples=config.num_samples_eval,
@@ -317,20 +229,20 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         },
     )
 
-  if state_list[0].step < config.training_steps:
+  if state_tuple[0].step < config.training_steps:
     logging.info('Training Variational Meta-Posterior (VMP-flow)...')
 
   # Reset random key sequence
   prng_seq = hk.PRNGSequence(config.seed)
 
-  while state_list[0].step < config.training_steps:
+  while state_tuple[0].step < config.training_steps:
 
     # Plots to monitor training
-    if ((state_list[0].step == 0) or
-        (state_list[0].step % config.log_img_steps == 0)):
+    if ((state_tuple[0].step == 0) or
+        (state_tuple[0].step % config.log_img_steps == 0)):
       # print("Logging images...\n")
       log_images(
-          state_list=state_list,
+          state_tuple=state_tuple,
           prng_key=next(prng_seq),
           config=config,
           dataset=train_ds,
@@ -345,34 +257,36 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     summary_writer.scalar(
         tag='learning_rate',
         value=getattr(optax, config.optim_kwargs.lr_schedule_name)(
-            **config.optim_kwargs.lr_schedule_kwargs)(state_list[0].step),
-        step=state_list[0].step,
+            **config.optim_kwargs.lr_schedule_kwargs)(state_tuple[0].step),
+        step=state_tuple[0].step,
     )
 
     # SGD step
-    state_list, metrics = update_states_jit(
-        state_list=state_list,
+    state_tuple_, metrics = train_step_jit(
+        state_tuple=state_tuple,
         batch=train_ds,
         prng_key=next(prng_seq),
     )
-    # The computed training loss corresponds to the model before update
+    if jax.lax.is_finite(metrics['train_loss']):
+      state_tuple = state_tuple_
+
     summary_writer.scalar(
         tag='train_loss',
         value=metrics['train_loss'],
-        step=state_list[0].step - 1,
+        step=state_tuple[0].step,
     )
 
-    if state_list[0].step == 1:
-      logging.info("STEP: %5d; training loss: %.3f", state_list[0].step - 1,
+    if state_tuple[0].step == 1:
+      logging.info("STEP: %5d; training loss: %.3f", state_tuple[0].step,
                    metrics["train_loss"])
 
     # Metrics for evaluation
-    if state_list[0].step % config.eval_steps == 0:
-      logging.info("STEP: %5d; training loss: %.3f", state_list[0].step - 1,
+    if state_tuple[0].step % config.eval_steps == 0:
+      logging.info("STEP: %5d; training loss: %.3f", state_tuple[0].step,
                    metrics["train_loss"])
 
       elbo_dict = elbo_validation_jit(
-          state_list=state_list,
+          state_tuple=state_tuple,
           batch=train_ds,
           prng_key=next(prng_seq),
       )
@@ -380,34 +294,17 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         summary_writer.scalar(
             tag=f'elbo_{k}',
             value=v.mean(),
-            step=state_list[0].step,
+            step=state_tuple[0].step,
         )
 
-    if state_list[0].step % config.checkpoint_steps == 0:
-      for state_i, state_name_i in zip(state_list, state_name_list):
-        save_checkpoint(
-            state=state_i,
-            checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
-            keep=config.checkpoints_keep,
-        )
+    for state, mngr in zip(state_tuple, orbax_ckpt_mngrs):
+      mngr.save(step=int(state.step), items=state)
 
-    # Wait until computations are done before the next step
-    # jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
-
-  logging.info('Final training step: %i', state_list[0].step)
-
-  # Saving checkpoint at the end of the training process
-  # (in case training_steps is not multiple of checkpoint_steps)
-  for state_i, state_name_i in zip(state_list, state_name_list):
-    save_checkpoint(
-        state=state_i,
-        checkpoint_dir=f'{checkpoint_dir}/{state_name_i}',
-        keep=config.checkpoints_keep,
-    )
+  logging.info('Final training step: %i', state_tuple[0].step)
 
   # Last plot of posteriors
   log_images(
-      state_list=state_list,
+      state_tuple=state_tuple,
       prng_key=next(prng_seq),
       config=config,
       dataset=train_ds,
@@ -418,7 +315,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       workdir_png=workdir,
   )
 
-  return state_list
+  return state_tuple
 
 
 # # For debugging
