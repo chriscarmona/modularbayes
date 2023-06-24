@@ -34,7 +34,7 @@ def get_config():
   config.flow_kwargs.range_max = 40.
 
   # Number of samples to approximate ELBO's gradient
-  config.num_samples_elbo = 100
+  config.num_samples_elbo = 10
 
   # Number of training steps to run.
   config.training_steps = 20_000
@@ -83,7 +83,6 @@ def get_config():
   config.vmp_map_kwargs.hidden_sizes = [10] * 5
 
   # Number of samples of eta for Meta-Posterior training
-  config.num_samples_eta = 25
   config.eta_sampling_a = 0.2
   config.eta_sampling_b = 1.0
 

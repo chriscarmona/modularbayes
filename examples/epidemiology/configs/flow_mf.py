@@ -62,7 +62,7 @@ def get_config():
   config.num_samples_plot = 40_000
 
   # How often to save model checkpoints.
-  config.checkpoint_steps = config.training_steps / 4
+  config.checkpoint_steps = config.training_steps / 2
 
   # How many checkpoints to keep.
   config.checkpoints_keep = 1

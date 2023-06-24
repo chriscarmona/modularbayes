@@ -24,7 +24,7 @@ def get_config():
   config.flow_kwargs = ml_collections.ConfigDict()
 
   # Number of posteriors samples to approximate the variational loss (ELBO).
-  config.num_samples_elbo = 50
+  config.num_samples_elbo = 10
 
   # Number of training steps to run.
   config.training_steps = 10_000
@@ -73,7 +73,6 @@ def get_config():
   config.vmp_map_kwargs.hidden_sizes = [10] * 5
 
   # Number of samples of eta for Meta-Posterior training
-  config.num_samples_eta = 25
   config.eta_sampling_a = 0.2
   config.eta_sampling_b = 1.0
 
