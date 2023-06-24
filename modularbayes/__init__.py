@@ -31,14 +31,7 @@ from modularbayes._src.utils.misc import list_from_csv
 from modularbayes._src.utils.misc import plot_to_image
 from modularbayes._src.utils.misc import normalize_images
 
-from modularbayes._src.utils.training import TrainState
-from modularbayes._src.utils.training import initial_state
-from modularbayes._src.utils.training import initial_state_ckpt
-from modularbayes._src.utils.training import load_ckpt
-from modularbayes._src.utils.training import save_ckpt
-from modularbayes._src.utils.training import save_checkpoint
-from modularbayes._src.utils.training import update_state
-from modularbayes._src.utils.training import update_states
+from modularbayes._src.utils.training import train_step
 
 __all__ = (
     'Blockwise',
@@ -64,12 +57,5 @@ __all__ = (
     'list_from_csv',
     'plot_to_image',
     'normalize_images',
-    'TrainState',
-    'initial_state',
-    'initial_state_ckpt',
-    'load_ckpt',
-    'save_ckpt',
-    'save_checkpoint',
-    'update_state',
-    'update_states',
+    'train_step',
 )
