@@ -115,6 +115,7 @@ def get_q_nocut_nsf(
     num_bins: int,
     range_min: float = 0.,
     range_max: float = 1.,
+    is_meta: bool = False,
     **_,
 ) -> distrax.Transformed:
   """Creates the Rational Quadratic Flow model.
@@ -150,16 +151,29 @@ def get_q_nocut_nsf(
   # - `num_bins + 1` knot slopes
   # for a total of `3 * num_bins + 1` parameters.
   for _ in range(num_layers):
-    layer = distrax.MaskedCoupling(
-        mask=mask,
-        bijector=bijector_fn,
-        conditioner=modularbayes.MLPConditioner(
-            output_dim=math.prod(event_shape),
-            hidden_sizes=hidden_sizes,
-            num_bijector_params=num_bijector_params,
-            name='conditioner_nocut',
-        ),
-    )
+    if is_meta:
+      layer = modularbayes.ConditionalMaskedCoupling(
+          mask=mask,
+          bijector=bijector_fn,
+          conditioner=modularbayes.MLPConditioner(
+              output_dim=math.prod(event_shape),
+              hidden_sizes=hidden_sizes,
+              num_bijector_params=num_bijector_params,
+              name='conditioner_nocut',
+          ),
+      )
+    else:
+      layer = distrax.MaskedCoupling(
+          mask=mask,
+          bijector=bijector_fn,
+          conditioner=modularbayes.MLPConditioner(
+              output_dim=math.prod(event_shape),
+              hidden_sizes=hidden_sizes,
+              num_bijector_params=num_bijector_params,
+              name='conditioner_nocut',
+          ),
+      )
+
     flow_layers.append(layer)
     # Flip the mask after each layer.
     mask = jnp.logical_not(mask)
@@ -169,7 +183,10 @@ def get_q_nocut_nsf(
   flow_layers.append(bij_nocut)
 
   # Chain all flow layers together
-  flow = distrax.Chain(flow_layers[::-1])
+  if is_meta:
+    flow = modularbayes.ConditionalChain(flow_layers[::-1])
+  else:
+    flow = distrax.Chain(flow_layers[::-1])
 
   # base_distribution = distrax.Independent(
   #     distrax.Uniform(low=jnp.zeros(event_shape), high=jnp.ones(event_shape)),
@@ -177,8 +194,12 @@ def get_q_nocut_nsf(
 
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
-
-  return modularbayes.Transformed(base_distribution, flow)
+  if is_meta:
+    q_distr = modularbayes.ConditionalTransformed(base_distribution, flow)
+  else:
+    q_distr = modularbayes.Transformed(base_distribution, flow)
+    
+  return q_distr
 
 
 def get_q_cutgivennocut_nsf(
@@ -252,166 +273,6 @@ def get_q_cutgivennocut_nsf(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
 
   return modularbayes.ConditionalTransformed(base_distribution, flow)
-
-
-def get_q_nocut_meta_nsf(
-    phi_dim: int,
-    num_layers: int,
-    hidden_sizes_conditioner: Sequence[int],
-    hidden_sizes_conditioner_eta: Sequence[int],
-    num_bins: int,
-    range_min: float = 0.,
-    range_max: float = 1.,
-    **_,
-) -> modularbayes.ConditionalTransformed:
-  """Creates the Rational Quadratic Flow model.
-
-  Args:
-  range_min: the lower bound of the spline's range. Below `range_min`, the
-    bijector defaults to a linear transformation.
-  range_max: the upper bound of the spline's range. Above `range_max`, the
-    bijector defaults to a linear transformation.
-  """
-
-  flow_dim = phi_dim
-
-  event_shape = (flow_dim,)
-
-  flow_layers = []
-
-  # Number of parameters required by the bijector (rational quadratic spline)
-  num_bijector_params = 3 * num_bins + 1
-
-  def bijector_fn(params: Array):
-    return distrax.RationalQuadraticSpline(
-        params, range_min=range_min, range_max=range_max)
-
-  # Alternating binary mask.
-  mask = jnp.arange(0, math.prod(event_shape)) % 2
-  mask = jnp.reshape(mask, event_shape)
-  mask = mask.astype(bool)
-
-  # Number of parameters for the rational-quadratic spline:
-  # - `num_bins` bin widths
-  # - `num_bins` bin heights
-  # - `num_bins + 1` knot slopes
-  # for a total of `3 * num_bins + 1` parameters.
-
-  for _ in range(num_layers):
-    layer = modularbayes.EtaConditionalMaskedCoupling(
-        mask=mask,
-        bijector=bijector_fn,
-        conditioner_eta=modularbayes.MLPConditioner(
-            output_dim=math.prod(event_shape),
-            hidden_sizes=hidden_sizes_conditioner_eta,
-            num_bijector_params=num_bijector_params,
-            name='conditioner_eta_nocut',
-        ),
-        conditioner=modularbayes.MLPConditioner(
-            output_dim=math.prod(event_shape),
-            hidden_sizes=hidden_sizes_conditioner,
-            num_bijector_params=num_bijector_params,
-            name='conditioner_nocut',
-        ),
-    )
-    flow_layers.append(layer)
-    # Flip the mask after each layer.
-    mask = jnp.logical_not(mask)
-
-  # Last Layer: Map values to parameter domain
-  bij_nocut = bijector_domain_nocut()
-  flow_layers.append(bij_nocut)
-
-  # Chain all flow layers together
-  flow = modularbayes.ConditionalChain(flow_layers[::-1])
-
-  # base_distribution = distrax.Independent(
-  #     distrax.Uniform(low=jnp.zeros(event_shape), high=jnp.ones(event_shape)),
-  #     reinterpreted_batch_ndims=len(event_shape))
-
-  base_distribution = distrax.MultivariateNormalDiag(
-      loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
-
-  return modularbayes.ConditionalTransformed(base_distribution, flow)
-
-
-def get_q_cutgivennocut_meta_nsf(
-    theta_dim: int,
-    num_layers: int,
-    hidden_sizes_conditioner: Sequence[int],
-    hidden_sizes_conditioner_eta: Sequence[int],
-    num_bins: int,
-    range_min: float = 0.,
-    range_max: float = 1.,
-    **_,
-) -> modularbayes.ConditionalTransformed:
-  """Creates the Rational Quadratic Flow model.
-
-  Args:
-  range_min: the lower bound of the spline's range. Below `range_min`, the
-    bijector defaults to a linear transformation.
-  range_max: the upper bound of the spline's range. Above `range_max`, the
-    bijector defaults to a linear transformation.
-  """
-
-  flow_dim = theta_dim
-  event_shape = (flow_dim,)
-
-  flow_layers = []
-
-  # Number of parameters required by the bijector (rational quadratic spline)
-  num_bijector_params = 3 * num_bins + 1
-
-  def bijector_fn(params: Array):
-    return distrax.RationalQuadraticSpline(
-        params, range_min=range_min, range_max=range_max)
-
-  # Alternating binary mask.
-  mask = jnp.arange(0, math.prod(event_shape)) % 2
-  mask = jnp.reshape(mask, event_shape)
-  mask = mask.astype(bool)
-
-  # Number of parameters for the rational-quadratic spline:
-  # - `num_bins` bin widths
-  # - `num_bins` bin heights
-  # - `num_bins + 1` knot slopes
-  # for a total of `3 * num_bins + 1` parameters.
-
-  for _ in range(num_layers):
-    layer = modularbayes.EtaConditionalMaskedCoupling(
-        mask=mask,
-        bijector=bijector_fn,
-        conditioner_eta=modularbayes.MLPConditioner(
-            output_dim=math.prod(event_shape),
-            hidden_sizes=hidden_sizes_conditioner_eta,
-            num_bijector_params=num_bijector_params,
-            name='conditioner_eta_theta',
-        ),
-        conditioner=modularbayes.MLPConditioner(
-            # input_dim=math.prod(event_shape),
-            output_dim=math.prod(event_shape),
-            hidden_sizes=hidden_sizes_conditioner,
-            num_bijector_params=num_bijector_params,
-            name='conditioner_theta',
-        ),
-    )
-    flow_layers.append(layer)
-    # Flip the mask after each layer.
-    mask = jnp.logical_not(mask)
-
-  # Last layer: Map values to parameter domain
-  bij_cut = bijector_domain_cut()
-  flow_layers.append(bij_cut)
-
-  # Chain all flow layers together
-  flow = modularbayes.ConditionalChain(flow_layers[::-1])
-
-  base_distribution = distrax.MultivariateNormalDiag(
-      loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
-
-  q_distr = modularbayes.ConditionalTransformed(base_distribution, flow)
-
-  return q_distr
 
 
 def split_flow_nocut(

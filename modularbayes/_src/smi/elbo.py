@@ -121,6 +121,7 @@ def elbo_smi_vmpflow(
       model_params_tupleclass=model_params_tupleclass,
       split_flow_fn_nocut=split_flow_fn_nocut,
       split_flow_fn_cut=split_flow_fn_cut,
+      sample_shape=(num_samples,),
       eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
           smi_etas, axis=-1)),
   )

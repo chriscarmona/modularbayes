@@ -5,6 +5,7 @@ import pathlib
 from absl import logging
 
 import numpy as np
+from matplotlib import pyplot as plt
 
 import jax
 from jax import numpy as jnp
@@ -77,6 +78,7 @@ def log_images(
         flow_get_fn_nocut=flow_get_fn_nocut,
         flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
         flow_kwargs=config.flow_kwargs,
+        sample_shape=(num_samples_plot,),
         eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
             smi_etas, axis=-1)),
     )
@@ -145,7 +147,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       config=config,
       flow_get_fn_nocut=flow_get_fn_nocut,
       flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
-      sample_shape=None,
+      sample_shape=(config.num_samples_elbo,),
       eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
   )
 
@@ -156,7 +158,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       config=config,
       flow_get_fn_nocut=flow_get_fn_nocut,
       flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
-      sample_shape=None,
+      sample_shape=(config.num_samples_elbo,),
       eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
   )
 
@@ -240,7 +242,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     # Plots to monitor training
     if ((state_tuple[0].step == 0) or
         (state_tuple[0].step % config.log_img_steps == 0)):
-      # print("Logging images...\n")
+      logging.info("\t\t Logging plots...")
       log_images(
           state_tuple=state_tuple,
           prng_key=next(prng_seq),
@@ -252,6 +254,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           summary_writer=summary_writer,
           workdir_png=workdir,
       )
+      plt.close()
+      logging.info("\t\t...done logging plots.")
 
     # Log learning rate
     summary_writer.scalar(

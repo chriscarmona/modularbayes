@@ -77,6 +77,7 @@ def plot_elpd_surface(
       model_params_tupleclass=ModelParams,
       split_flow_fn_nocut=split_flow_nocut,
       split_flow_fn_cut=split_flow_cut,
+      sample_shape=(y.shape[0],),
       eta_values=y,
   )['model_params_sample'])
 
@@ -181,6 +182,7 @@ def log_images(
         flow_get_fn_nocut=flow_get_fn_nocut,
         flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
         flow_kwargs=config.flow_kwargs,
+        sample_shape=(num_samples_plot,),
         eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
             smi_etas, axis=-1)),
     )
@@ -321,7 +323,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       config=config,
       flow_get_fn_nocut=flow_get_fn_nocut,
       flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
-      sample_shape=None,
+      sample_shape=(config.num_samples_elbo,),
       eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
   )
 
@@ -332,7 +334,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       config=config,
       flow_get_fn_nocut=flow_get_fn_nocut,
       flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
-      sample_shape=None,
+      sample_shape=(config.num_samples_elbo,),
       eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
   )
 

@@ -5,6 +5,7 @@ import pathlib
 from absl import logging
 
 import numpy as np
+from matplotlib import pyplot as plt
 
 from arviz import InferenceData
 
@@ -219,14 +220,13 @@ def sample_q_as_az(
     flow_get_fn_nocut: Callable,
     flow_get_fn_cutgivennocut: Callable,
     flow_kwargs: Dict[str, Any],
-    sample_shape: Optional[Tuple[int]] = None,
+    sample_shape: Optional[Tuple[int]],
     eta_values: Optional[Array] = None,
 ) -> InferenceData:
   """Plots to monitor during training."""
-  assert sample_shape is not None or eta_values is not None, (
-      'Either sample_shape or eta_values must be provided.')
-  assert sample_shape is None or eta_values is None, (
-      'Only one of sample_shape or eta_values must be provided.')
+  if eta_values is not None:
+    assert eta_values.ndim == 2
+    assert (eta_values.shape[0],) == sample_shape
   # Sample from flow
   q_distr_out = sample_q(
       lambda_tuple=lambda_tuple,
@@ -415,6 +415,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           workdir_png=workdir,
           summary_writer=summary_writer,
       )
+      plt.close()
+      logging.info("\t\t...done logging plots.")
 
     # Log learning rate
     summary_writer.scalar(

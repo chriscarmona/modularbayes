@@ -1,7 +1,7 @@
 """Sampling from the Semi-Modular posterior using normalizing flows."""
 
 import jax
-
+from jax import numpy as jnp
 import haiku as hk
 
 from modularbayes._src.typing import (Any, Array, Callable, Dict, IntLike,
@@ -13,7 +13,7 @@ def sample_q_nocut(
     flow_get_fn: Callable,
     flow_kwargs: Dict[str, Any],
     split_flow_fn: Callable,
-    sample_shape: Optional[Tuple[IntLike]] = None,
+    sample_shape: Optional[Tuple[IntLike]],
     eta_values: Optional[Array] = None,
 ) -> Dict[str, Any]:
   """Sample from variational posterior for no-cut parameters."""
@@ -21,20 +21,13 @@ def sample_q_nocut(
   q_output = {}
 
   # Define normalizing flows
-  q_distr = flow_get_fn(**flow_kwargs)
+  q_distr = flow_get_fn(is_meta=(eta_values is not None), **flow_kwargs)
 
-  assert sample_shape is not None or eta_values is not None, (
-      'Either sample_shape or eta_values must be provided.')
-  assert sample_shape is None or eta_values is None, (
-      'Only one of sample_shape or eta_values must be provided.')
-
-  if eta_values is None:
-    kwargs_distr_ = {'sample_shape': sample_shape}
-  else:
-    kwargs_distr_ = {
-        'sample_shape': (eta_values.shape[0],),
-        'context': (eta_values, None)
-    }
+  kwargs_distr_ = {'sample_shape': sample_shape}
+  if eta_values is not None:
+    assert eta_values.ndim == 2
+    assert (eta_values.shape[0],) == sample_shape
+    kwargs_distr_['context'] = eta_values
 
   # Sample from flows
   (sample_flow_concat, sample_logprob,
@@ -70,18 +63,15 @@ def sample_q_cutgivennocut(
 
   q_output = {}
 
-  if eta_values is None:
-    kwargs_distr_ = {
-        'sample_shape': (nocut_base_sample.shape[0],),
-        'context': nocut_base_sample,
-    }
-  else:
+  kwargs_distr_ = {
+      'sample_shape': (nocut_base_sample.shape[0],),
+      'context': nocut_base_sample,
+  }
+  if eta_values is not None:
     assert nocut_base_sample.shape[0] == eta_values.shape[0], (
-        'First diension of nocut_base_sample and eta_valuesmust match.')
-    kwargs_distr_ = {
-        'sample_shape': (nocut_base_sample.shape[0],),
-        'context': (eta_values, nocut_base_sample),
-    }
+        'First dimension of nocut_base_sample and eta_valuesmust match.')
+    kwargs_distr_['context'] = jnp.concatenate([nocut_base_sample, eta_values],
+                                               axis=-1)
 
   # Define normalizing flows
   q_distr = flow_get_fn(**flow_kwargs)
@@ -112,18 +102,17 @@ def sample_q(
     model_params_tupleclass: type,
     split_flow_fn_nocut: Callable,
     split_flow_fn_cut: Callable,
-    sample_shape: Optional[Tuple[IntLike]] = None,
+    sample_shape: Optional[Tuple[IntLike]],
     eta_values: Optional[Array] = None,
 ) -> Dict[str, Any]:
   """Sample from model posterior"""
 
   prng_seq = hk.PRNGSequence(prng_key)
 
-  assert sample_shape is not None or eta_values is not None, (
-      'Either sample_shape or eta_values must be provided.')
-  assert sample_shape is None or eta_values is None, (
-      'Only one of sample_shape or eta_values must be provided.')
-
+  if eta_values is not None:
+    assert eta_values.ndim == 2
+    assert (eta_values.shape[0],) == sample_shape
+    
   q_output = {}
 
   # Sample from q(no_cut_params)

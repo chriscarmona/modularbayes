@@ -18,7 +18,7 @@ def get_config():
   config.method = 'vmp_flow'
 
   # Defined in `epidemiology.models.flows`.
-  config.flow_name = 'meta_nsf'
+  config.flow_name = 'nsf'
 
   # kwargs to be passed to the flow
   config.flow_kwargs = ml_collections.ConfigDict()
@@ -26,9 +26,7 @@ def get_config():
   config.flow_kwargs.num_layers = 4
   # Hidden sizes
   # Hidden sizes of the MLP conditioner.
-  config.flow_kwargs.hidden_sizes_conditioner = [5] * 3
-  # Hidden sizes of the MLP conditioner for eta.
-  config.flow_kwargs.hidden_sizes_conditioner_eta = [5] * 3
+  config.flow_kwargs.hidden_sizes = [5] * 3
   # Number of bins to use in the rational-quadratic spline.
   config.flow_kwargs.num_bins = 10
   # the lower bound of the spline's range
