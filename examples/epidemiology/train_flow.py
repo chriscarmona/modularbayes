@@ -53,7 +53,7 @@ def init_state_tuple(
     flow_get_fn_cutgivennocut: Callable,
     sample_shape: Tuple[int],
     eta_values: Array,
-):
+) -> SmiPosteriorStates:
   """Initialize states of the three normalizing flows."""
   prng_seq = hk.PRNGSequence(prng_key)
 

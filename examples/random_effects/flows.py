@@ -207,7 +207,7 @@ def split_flow_nocut(
     concat_params: Array,
     num_groups: int,
     **_,
-) -> Dict[str, Any]:
+) -> ModelParamsNoCut:
   """Get model parameters by splitting samples from the flow."""
 
   flow_dim = num_groups
@@ -224,7 +224,7 @@ def split_flow_cut(
     concat_params: Array,
     num_groups: int,
     **_,
-) -> Dict[str, Any]:
+) -> ModelParamsCut:
   """Get model parameters by splitting samples from the flow.
   
   The parameter theta contain the intercept and slope of the
@@ -244,7 +244,7 @@ def split_flow_cut(
 def concat_flow_nocut(
     model_params: ModelParamsNoCut,
     **_,
-) -> Dict[str, Any]:
+) -> Array:
   """Concatenate model parameters from ModelParamsNoCut into a single array."""
   concat_params = model_params[0]
   assert concat_params.ndim == 1
@@ -254,7 +254,7 @@ def concat_flow_nocut(
 def concat_flow_cut(
     model_params: ModelParamsNoCut,
     **_,
-) -> Dict[str, Any]:
+) -> Array:
   """Concatenate model parameters from ModelParamsCut into a single array."""
   concat_params = jnp.concatenate(model_params, axis=-1)
   assert concat_params.ndim == 1
