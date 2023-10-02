@@ -1,6 +1,6 @@
 arviz
-git+https://github.com/blackjax-devs/blackjax
-git+https://github.com/deepmind/distrax
-modularbayes
+blackjax
+distrax
 pandas
-orbax-checkpoint
+objax
+orbax-checkpoint==0.3.5
