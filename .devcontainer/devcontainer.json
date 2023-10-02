@@ -24,17 +24,21 @@
         },
         "python.defaultInterpreterPath": "/bin/python3",
         "python.languageServer": "Default",
-        "python.linting.enabled": true,
-        "python.linting.pylintEnabled": true,
-        "python.linting.lintOnSave": true,
-        "python.formatting.provider": "yapf",
         "editor.formatOnSave": true,
-        "jupyter.sendSelectionToInteractiveWindow": true
+        "editor.tabSize": 2,
+        "editor.detectIndentation": false,
+        "jupyter.interactiveWindow.textEditor.executeSelection": true,
+        "[python]": {
+          "editor.defaultFormatter": "eeyore.yapf",
+        }
       },
       // Add the IDs of extensions you want installed when the container is created.
       "extensions": [
+        "eeyore.yapf",
         "ms-python.python",
+        "ms-python.pylint",
         "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
         "amazonwebservices.aws-toolkit-vscode",
         "ryu1kn.partial-diff"
       ]

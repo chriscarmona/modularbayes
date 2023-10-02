@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
+FROM nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
 
 LABEL maintainer="chrcarm@amazon.com"
 
@@ -24,7 +24,7 @@ RUN ln -sf /usr/bin/pip3 /usr/bin/pip
 # Upgrade pip
 RUN pip --no-cache-dir install -U pip
 # Install useful python modules
-RUN pip install -U wheel setuptools pylint==2.13.9 yapf
+RUN pip install -U wheel setuptools pylint yapf
 
 # For Sagemaker
 RUN pip install -U sagemaker-training
@@ -32,10 +32,10 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 # Install Jax with CUDA support
-RUN ln -s /usr/local/cuda /usr/local/cuda-11.8
+RUN ln -s /usr/local/cuda /usr/local/cuda-12.1
 ENV LD_LIBRARY_PATH "${LD_LIBRARY_PATH}:/usr/local/cuda/lib64"
 ENV PATH "${PATH}:/usr/local/cuda/bin"
-RUN pip --no-cache-dir install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+RUN pip --no-cache-dir install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 
 # Add a non-root user
 # https://code.visualstudio.com/remote/advancedcontainers/add-nonroot-user
