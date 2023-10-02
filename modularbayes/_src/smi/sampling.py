@@ -4,8 +4,16 @@ import jax
 from jax import numpy as jnp
 import haiku as hk
 
-from modularbayes._src.typing import (Any, Array, Callable, Dict, IntLike,
-                                      Optional, PRNGKey, Tuple)
+from modularbayes._src.typing import (
+    Any,
+    Array,
+    Callable,
+    Dict,
+    IntLike,
+    Optional,
+    PRNGKey,
+    Tuple,
+)
 
 
 @hk.transform
@@ -23,29 +31,32 @@ def sample_q_nocut(
   # Define normalizing flows
   q_distr = flow_get_fn(is_meta=(eta_values is not None), **flow_kwargs)
 
-  kwargs_distr_ = {'sample_shape': sample_shape}
+  kwargs_distr_ = {"sample_shape": sample_shape}
   if eta_values is not None:
     assert eta_values.ndim == 2
     assert (eta_values.shape[0],) == sample_shape
-    kwargs_distr_['context'] = eta_values
+    kwargs_distr_["context"] = eta_values
 
   # Sample from flows
-  (sample_flow_concat, sample_logprob,
-   sample_base) = q_distr.sample_and_log_prob_with_base(
-       seed=hk.next_rng_key(), **kwargs_distr_)
+  (
+      sample_flow_concat,
+      sample_logprob,
+      sample_base,
+  ) = q_distr.sample_and_log_prob_with_base(
+      seed=hk.next_rng_key(), **kwargs_distr_)
 
   # Split flow into model parameters
-  q_output['sample'] = jax.vmap(lambda x: split_flow_fn(
+  q_output["sample"] = jax.vmap(lambda x: split_flow_fn(
       concat_params=x,
       **flow_kwargs,
   ))(
       sample_flow_concat)
 
   # sample from base distribution
-  q_output['sample_base'] = sample_base
+  q_output["sample_base"] = sample_base
 
   # variational posterior evaluated in the sample
-  q_output['sample_logprob'] = sample_logprob
+  q_output["sample_logprob"] = sample_logprob
 
   return q_output
 
@@ -58,19 +69,21 @@ def sample_q_cutgivennocut(
     split_flow_fn: Callable,
     eta_values: Optional[Array] = None,
 ) -> Dict[str, Any]:
-  """Sample from variational posterior for cut parameters
-  Conditional on values of no-cut parameters."""
+  """Sample from variational posterior for cut parameters.
+
+  Conditional on values of no-cut parameters.
+  """
 
   q_output = {}
 
   kwargs_distr_ = {
-      'sample_shape': (nocut_base_sample.shape[0],),
-      'context': nocut_base_sample,
+      "sample_shape": (nocut_base_sample.shape[0],),
+      "context": nocut_base_sample,
   }
   if eta_values is not None:
-    assert nocut_base_sample.shape[0] == eta_values.shape[0], (
-        'First dimension of nocut_base_sample and eta_valuesmust match.')
-    kwargs_distr_['context'] = jnp.concatenate([nocut_base_sample, eta_values],
+    assert (nocut_base_sample.shape[0] == eta_values.shape[0]
+           ), "First dimension of nocut_base_sample and eta_valuesmust match."
+    kwargs_distr_["context"] = jnp.concatenate([nocut_base_sample, eta_values],
                                                axis=-1)
 
   # Define normalizing flows
@@ -81,14 +94,14 @@ def sample_q_cutgivennocut(
       seed=hk.next_rng_key(), **kwargs_distr_)
 
   # Split flow into model parameters
-  q_output['sample'] = jax.vmap(lambda x: split_flow_fn(
+  q_output["sample"] = jax.vmap(lambda x: split_flow_fn(
       concat_params=x,
       **flow_kwargs,
   ))(
       sample)
 
   # variational posterior evaluated in the sample
-  q_output['sample_logprob'] = sample_logprob
+  q_output["sample_logprob"] = sample_logprob
 
   return q_output
 
@@ -112,7 +125,7 @@ def sample_q(
   if eta_values is not None:
     assert eta_values.ndim == 2
     assert (eta_values.shape[0],) == sample_shape
-    
+
   q_output = {}
 
   # Sample from q(no_cut_params)
@@ -133,16 +146,16 @@ def sample_q(
       flow_get_fn=flow_get_fn_cutgivennocut,
       flow_kwargs=flow_kwargs,
       split_flow_fn=split_flow_fn_cut,
-      nocut_base_sample=q_output_nocut_['sample_base'],
+      nocut_base_sample=q_output_nocut_["sample_base"],
       eta_values=eta_values,
   )
 
-  q_output['model_params_sample'] = model_params_tupleclass(**{
-      **q_output_nocut_['sample']._asdict(),
-      **q_output_cut_['sample']._asdict(),
+  q_output["model_params_sample"] = model_params_tupleclass(**{
+      **q_output_nocut_["sample"]._asdict(),
+      **q_output_cut_["sample"]._asdict(),
   })
-  q_output['log_q_nocut'] = q_output_nocut_['sample_logprob']
-  q_output['log_q_cut'] = q_output_cut_['sample_logprob']
+  q_output["log_q_nocut"] = q_output_nocut_["sample_logprob"]
+  q_output["log_q_cut"] = q_output_cut_["sample_logprob"]
 
   if flow_kwargs.is_smi:
     q_output_cut_aux_ = sample_q_cutgivennocut.apply(
@@ -151,14 +164,14 @@ def sample_q(
         flow_get_fn=flow_get_fn_cutgivennocut,
         flow_kwargs=flow_kwargs,
         split_flow_fn=split_flow_fn_cut,
-        nocut_base_sample=q_output_nocut_['sample_base'],
+        nocut_base_sample=q_output_nocut_["sample_base"],
         eta_values=eta_values,
     )
-    q_output['model_params_aux_sample'] = model_params_tupleclass(
+    q_output["model_params_aux_sample"] = model_params_tupleclass(
         **{
-            **q_output_nocut_['sample']._asdict(),
-            **q_output_cut_aux_['sample']._asdict(),
+            **q_output_nocut_["sample"]._asdict(),
+            **q_output_cut_aux_["sample"]._asdict(),
         })
-    q_output['log_q_cut_aux'] = q_output_cut_aux_['sample_logprob']
+    q_output["log_q_cut_aux"] = q_output_cut_aux_["sample_logprob"]
 
   return q_output

@@ -1,6 +1,6 @@
 """modularbayes: Variational methods for Bayesian Semi-Modular Inference."""
 
-__version__ = '0.1.4'
+__version__ = "0.1.5"
 
 from modularbayes._src.bijectors.blockwise import Blockwise
 from modularbayes._src.bijectors.conditional_bijector import ConditionalBijector
@@ -33,27 +33,27 @@ from modularbayes._src.utils.misc import normalize_images
 from modularbayes._src.utils.training import train_step
 
 __all__ = (
-    'Blockwise',
-    'ConditionalBijector',
-    'ConditionalChain',
-    'ConditionalMaskedCoupling',
-    'MeanFieldConditioner',
-    'MLPConditioner',
-    'ConditionalTransformed',
-    'Transformed',
-    'MLPVmpMap',
-    'sample_q_nocut',
-    'sample_q_cutgivennocut',
-    'sample_q',
-    'elbo_smi',
-    'elbo_smi_vmpflow',
-    'elbo_smi_vmpmap',
-    'cart2pol',
-    'clean_filename',
-    'colour_fader',
-    'flatten_dict',
-    'list_from_csv',
-    'plot_to_image',
-    'normalize_images',
-    'train_step',
+    "Blockwise",
+    "ConditionalBijector",
+    "ConditionalChain",
+    "ConditionalMaskedCoupling",
+    "MeanFieldConditioner",
+    "MLPConditioner",
+    "ConditionalTransformed",
+    "Transformed",
+    "MLPVmpMap",
+    "sample_q_nocut",
+    "sample_q_cutgivennocut",
+    "sample_q",
+    "elbo_smi",
+    "elbo_smi_vmpflow",
+    "elbo_smi_vmpmap",
+    "cart2pol",
+    "clean_filename",
+    "colour_fader",
+    "flatten_dict",
+    "list_from_csv",
+    "plot_to_image",
+    "normalize_images",
+    "train_step",
 )

@@ -9,8 +9,7 @@ import jax.numpy as jnp
 
 
 class Transformed(distrax.Transformed):
-  """Distribution transformed by a conditional bijective function.
-  """
+  """Distribution transformed by a conditional bijective function."""
 
   def sample_and_log_prob_with_base(
       self,
@@ -18,7 +17,6 @@ class Transformed(distrax.Transformed):
       seed: Union[IntLike, PRNGKey],
       sample_shape: Union[IntLike, Sequence[IntLike]] = ()
   ) -> Tuple[Array]:
-
     x, lp_x = self.distribution.sample_and_log_prob(
         seed=seed, sample_shape=sample_shape)
     y, fldj = jax.vmap(self.bijector.forward_and_log_det)(x)

@@ -1,25 +1,36 @@
 """Pytypes for arrays and scalars."""
 
-from typing import (Any, Callable, Dict, Iterable, Iterator, List, Mapping,
-                    NamedTuple, Optional, Sequence, Tuple, Union)
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 from pathlib import Path, PosixPath
 
 from collections import namedtuple
 
-import jax
-
 import numpy as np
-
-from chex import Array, PRNGKey
 
 from collections import OrderedDict
 from ml_collections import ConfigDict
 
 from tensorflow_probability.substrates import jax as tfp
 
+from flax.training.train_state import TrainState
+
+from chex import Array, ArrayTree, PRNGKey
+
 ArrayNumpy = np.ndarray
-ArraySharded = jax.interpreters.pxla.ShardedDeviceArray
 
 BijectorParams = Any
 
@@ -39,37 +50,38 @@ Kernel = tfp.math.psd_kernels.PositiveSemidefiniteKernel
 
 SmiPosteriorStates = namedtuple(
     "smi_posterior_states",
-    field_names=('no_cut', 'cut', 'cut_aux'),
+    field_names=("no_cut", "cut", "cut_aux"),
 )
 
 __all__ = [
-    'Any',
-    'Array',
-    'ArrayNumpy',
-    'ArraySharded',
-    'BijectorParams',
-    'Callable',
-    'ConfigDict',
-    'Dict',
-    'IntLike',
-    'Iterable',
-    'Iterator',
-    'Kernel',
-    'List',
-    'Mapping',
-    'Metrics',
-    'NamedTuple',
-    'Numeric',
-    'Optional',
-    'OrderedDict',
-    'PRNGKey',
-    'Path',
-    'PosixPath',
-    'RangeFloat',
-    'RangeInt',
-    'Sequence',
-    'Scalar',
-    'Shape',
-    'Tuple',
-    'Union',
+    "Any",
+    "Array",
+    "ArrayNumpy",
+    "ArrayTree",
+    "BijectorParams",
+    "Callable",
+    "ConfigDict",
+    "Dict",
+    "IntLike",
+    "Iterable",
+    "Iterator",
+    "Kernel",
+    "List",
+    "Mapping",
+    "Metrics",
+    "NamedTuple",
+    "Numeric",
+    "Optional",
+    "OrderedDict",
+    "PRNGKey",
+    "Path",
+    "PosixPath",
+    "RangeFloat",
+    "RangeInt",
+    "Sequence",
+    "Scalar",
+    "Shape",
+    "Tuple",
+    "TrainState",
+    "Union",
 ]

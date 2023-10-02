@@ -2,9 +2,7 @@
 
 import jax
 
-from flax.training.train_state import TrainState
-
-from modularbayes._src.typing import Any, Callable, Dict, PRNGKey, Tuple
+from modularbayes._src.typing import Any, Callable, Dict, PRNGKey, TrainState, Tuple
 
 
 def train_step(
@@ -27,5 +25,5 @@ def train_step(
       prng_key=prng_key,
       batch=batch,
       **loss_kwargs)
-  metrics = {'train_loss': new_train_loss}
+  metrics = {"train_loss": new_train_loss}
   return new_state_tuple, metrics

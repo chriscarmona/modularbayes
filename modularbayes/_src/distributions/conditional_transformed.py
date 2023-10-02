@@ -9,8 +9,7 @@ import jax.numpy as jnp
 import distrax
 from distrax._src.distributions import distribution as dist_base
 
-from modularbayes._src.typing import (Array, Tuple, Union, IntLike, PRNGKey,
-                                 Sequence)
+from modularbayes._src.typing import Array, Tuple, Union, IntLike, PRNGKey, Sequence
 
 
 class ConditionalTransformed(distrax.Transformed):

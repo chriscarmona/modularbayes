@@ -5,8 +5,7 @@ from jax import numpy as jnp
 import haiku as hk
 
 from modularbayes import sample_q
-from modularbayes._src.typing import (Any, Array, Batch, Callable, Dict,
-                                      PRNGKey, Tuple)
+from modularbayes._src.typing import Any, Array, Batch, Callable, Dict, PRNGKey, Tuple
 
 
 def elbo_smi(
@@ -51,8 +50,8 @@ def elbo_smi(
       prior_hparams=prior_hparams,
       smi_eta=smi_eta,
   ))(
-      q_distr_out['model_params_aux_sample'])
-  log_q_stg1 = (q_distr_out['log_q_nocut'] + q_distr_out['log_q_cut_aux'])
+      q_distr_out["model_params_aux_sample"])
+  log_q_stg1 = q_distr_out["log_q_nocut"] + q_distr_out["log_q_cut_aux"]
   elbo_stg1 = log_prob_joint_stg1 - log_q_stg1
 
   # ELBO stage 2: Conventional posterior (with stop_gradient)
@@ -60,7 +59,7 @@ def elbo_smi(
       **{
           k: (v if k in
               model_params_cut_tupleclass._fields else jax.lax.stop_gradient(v))
-          for k, v in q_distr_out['model_params_sample']._asdict().items()
+          for k, v in q_distr_out["model_params_sample"]._asdict().items()
       })
   log_prob_joint_stg2 = jax.vmap(lambda x: logprob_joint_fn(
       batch=batch,
@@ -70,12 +69,12 @@ def elbo_smi(
   ))(
       model_params_stg2)
   log_q_stg2 = (
-      jax.lax.stop_gradient(q_distr_out['log_q_nocut']) +
-      q_distr_out['log_q_cut'])
+      jax.lax.stop_gradient(q_distr_out["log_q_nocut"]) +
+      q_distr_out["log_q_cut"])
   elbo_stg2 = log_prob_joint_stg2 - log_q_stg2
 
   # Dictionary of ELBOs
-  elbo_dict = {'stage_1': elbo_stg1, 'stage_2': elbo_stg2}
+  elbo_dict = {"stage_1": elbo_stg1, "stage_2": elbo_stg2}
 
   return elbo_dict
 
@@ -132,8 +131,8 @@ def elbo_smi_vmpflow(
       model_params=x,
       prior_hparams=prior_hparams,
       smi_eta=y,
-  ))(q_distr_out['model_params_aux_sample'], smi_etas)
-  log_q_stg1 = (q_distr_out['log_q_nocut'] + q_distr_out['log_q_cut_aux'])
+  ))(q_distr_out["model_params_aux_sample"], smi_etas)
+  log_q_stg1 = q_distr_out["log_q_nocut"] + q_distr_out["log_q_cut_aux"]
   elbo_stg1 = log_prob_joint_stg1 - log_q_stg1
 
   # ELBO stage 2: Conventional posterior (with stop_gradient)
@@ -141,7 +140,7 @@ def elbo_smi_vmpflow(
       **{
           k: (v if k in
               model_params_cut_tupleclass._fields else jax.lax.stop_gradient(v))
-          for k, v in q_distr_out['model_params_sample']._asdict().items()
+          for k, v in q_distr_out["model_params_sample"]._asdict().items()
       })
   log_prob_joint_stg2 = jax.vmap(lambda x: logprob_joint_fn(
       batch=batch,
@@ -151,12 +150,12 @@ def elbo_smi_vmpflow(
   ))(
       model_params_stg2)
   log_q_stg2 = (
-      jax.lax.stop_gradient(q_distr_out['log_q_nocut']) +
-      q_distr_out['log_q_cut'])
+      jax.lax.stop_gradient(q_distr_out["log_q_nocut"]) +
+      q_distr_out["log_q_cut"])
   elbo_stg2 = log_prob_joint_stg2 - log_q_stg2
 
   # Dictionary of ELBOs
-  elbo_dict = {'stage_1': elbo_stg1, 'stage_2': elbo_stg2}
+  elbo_dict = {"stage_1": elbo_stg1, "stage_2": elbo_stg2}
 
   return elbo_dict
 
@@ -192,8 +191,8 @@ def elbo_smi_vmpmap(
           alpha_i,
           eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
               smi_etas, axis=-1)),
-          lambda_init=lambda_init_i)
-      for alpha_i, lambda_init_i in zip(alpha_tuple, lambda_init_tuple)
+          lambda_init=lambda_init_i,
+      ) for alpha_i, lambda_init_i in zip(alpha_tuple, lambda_init_tuple)
   ]
 
   # Compute ELBO.

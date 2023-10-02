@@ -65,7 +65,7 @@ class Blockwise(base.Bijector):
     self._block_sizes = [int(b) for b in block_sizes]
     self._block_sizes_split = list(itertools.accumulate(block_sizes))[:-1]
 
-    #TODO: Enable bijectors other than 1D
+    # TODO: Enable bijectors other than 1D
     assert all(bijector.event_ndims_in == 1 for bijector in self._bijectors)
     event_ndims_in = 1
     event_ndims_out = 1
@@ -77,7 +77,8 @@ class Blockwise(base.Bijector):
         event_ndims_in=event_ndims_in,
         event_ndims_out=event_ndims_out,
         is_constant_jacobian=is_constant_jacobian,
-        is_constant_log_det=is_constant_log_det)
+        is_constant_log_det=is_constant_log_det,
+    )
 
   @property
   def bijectors(self) -> List[BijectorT]:

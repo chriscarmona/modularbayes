@@ -82,7 +82,7 @@ class MLPConditioner(hk.Module):
         hk.Reshape(
             (self.output_dim,) + (self.num_bijector_params,),
             preserve_dims=-1,
-        )
+        ),
     ]
     self.layers = tuple(layers)
 
