@@ -1,5 +1,5 @@
 """Miscelaneous auxiliary functions."""
-
+import warnings
 import io
 import math
 import unicodedata
@@ -14,7 +14,7 @@ import csv
 
 from jax import numpy as jnp
 
-from modularbayes._src.typing import ConfigDict, Dict, List, Tuple
+from modularbayes._src.typing import Array, ConfigDict, Dict, List, Tuple
 
 
 def clean_filename(
@@ -126,17 +126,49 @@ def plot_to_image(fig):
   return image
 
 
-def normalize_images(images):
+def stack_images(images: Tuple[Array]):
   """Same height and width in all images"""
-  h = max(x.shape[1] for x in images)
-  w = max(x.shape[2] for x in images)
+  h = max(x.shape[0] for x in images)
+  w = max(x.shape[1] for x in images)
   for i, img in enumerate(images):
-    h_pad = (h - img.shape[1]) / 2
+    assert img.ndim == 3
+    h_pad = (h - img.shape[0]) / 2
     h_pad = math.floor(h_pad), math.ceil(h_pad)
-    w_pad = (w - img.shape[2]) / 2
+    w_pad = (w - img.shape[1]) / 2
     w_pad = math.floor(w_pad), math.ceil(w_pad)
-    images[i] = np.pad(img, ((0, 0), h_pad, w_pad, (0, 0)), mode="constant")
-
-  images = np.concatenate(images, axis=0)
-
+    images[i] = np.pad(img, (h_pad, w_pad, (0, 0)), mode="constant")
+  images = np.stack(images, axis=0)
   return images
+
+
+def img_stack_to_grid(
+    images_array: Array,
+    ncol: int,
+    nrow: int,
+    byrow: bool = True,
+) -> Array:
+  assert images_array.ndim == 4
+  n_img, height, width, channel = images_array.shape
+  ntotal = ncol * nrow
+  if images_array.shape[0] > ntotal:
+    warnings.warn(
+        f"images_array contains {n_img} images, only {ntotal} are displayed.")
+    images_array = images_array[:ntotal]
+  else:
+    # Pad to complete grid
+    batch_pad = (0, ntotal - images_array.shape[0])
+    images_array = np.pad(
+        images_array, (batch_pad, (0, 0), (0, 0), (0, 0)), mode="constant")
+
+  if byrow:
+    reshaped_array = images_array.reshape(nrow, ncol, height, width, channel)
+    reshaped_array = reshaped_array.transpose(0, 2, 1, 3, 4)
+    reshaped_array = reshaped_array.reshape(nrow * height, ncol * width,
+                                            channel)
+  else:
+    reshaped_array = images_array.reshape(nrow, ncol, height, width, channel)
+    reshaped_array = reshaped_array.transpose(1, 0, 2, 3, 4)
+    reshaped_array = reshaped_array.reshape(nrow * height, ncol * width,
+                                            channel)
+
+  return reshaped_array

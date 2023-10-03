@@ -28,7 +28,8 @@ from modularbayes._src.utils.misc import colour_fader
 from modularbayes._src.utils.misc import flatten_dict
 from modularbayes._src.utils.misc import list_from_csv
 from modularbayes._src.utils.misc import plot_to_image
-from modularbayes._src.utils.misc import normalize_images
+from modularbayes._src.utils.misc import stack_images
+from modularbayes._src.utils.misc import img_stack_to_grid
 
 from modularbayes._src.utils.training import train_step
 
@@ -54,6 +55,7 @@ __all__ = (
     "flatten_dict",
     "list_from_csv",
     "plot_to_image",
-    "normalize_images",
+    "stack_images",
+    "img_stack_to_grid",
     "train_step",
 )
