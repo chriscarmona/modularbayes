@@ -15,7 +15,7 @@ import jax
 from jax import numpy as jnp
 import haiku as hk
 
-from flax.metrics import tensorboard
+from objax.jaxboard import Summary
 
 from modularbayes import colour_fader, plot_to_image
 from modularbayes._src.typing import Array
@@ -42,8 +42,8 @@ def arviz_from_samples(
 
   samples_dict = model_params._asdict()
 
-  num_groups = dataset['Z'].shape[0]
-  assert samples_dict['phi'].shape[-1] == num_groups
+  num_groups = dataset["Z"].shape[0]
+  assert samples_dict["phi"].shape[-1] == num_groups
 
   coords_ = {
       "groups": range(num_groups),
@@ -68,12 +68,11 @@ def posterior_plots(
     show_loglinear_scatter: bool,
     show_theta_pairplot: bool,
     eta: Optional[float] = None,
-    suffix: str = '',
-    step: Optional[int] = 0,
+    suffix: str = "",
     workdir_png: Optional[str] = None,
-    summary_writer: Optional[tensorboard.SummaryWriter] = None,
+    summary: Optional[Summary] = None,
 ) -> None:
-  model_name = 'epidemiology'
+  model_name = "epidemiology"
   if show_phi_trace:
     param_name_ = "phi"
     axs = az.plot_trace(
@@ -91,19 +90,18 @@ def posterior_plots(
       plt.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
     image = plot_to_image(None)
 
-    if summary_writer:
+    if summary is not None:
       plot_name = f"{model_name}_{param_name_}_trace"
       plot_name += suffix
-      summary_writer.image(
+      summary.image(
           tag=plot_name,
           image=image,
-          step=step,
       )
 
   if show_theta_trace:
     axs = az.plot_trace(
         az_data,
-        var_names=['theta0', 'theta1'],
+        var_names=["theta0", "theta1"],
         compact=False,
     )
     plt.tight_layout()
@@ -113,31 +111,30 @@ def posterior_plots(
       plt.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
     image = plot_to_image(None)
 
-    if summary_writer:
+    if summary is not None:
       plot_name = f"{model_name}_theta_trace"
       plot_name += suffix
-      summary_writer.image(
+      summary.image(
           tag=plot_name,
           image=image,
-          step=step,
       )
 
   if show_theta_pairplot:
-    colour = colour_fader('black', 'gold', (eta if eta is not None else 1.0))
-    n_samples = np.prod(az_data.posterior['theta0'].shape[:2])
+    colour = colour_fader("black", "gold", (eta if eta is not None else 1.0))
+    n_samples = np.prod(az_data.posterior["theta0"].shape[:2])
     axs = az.plot_pair(
         az_data,
-        var_names=['theta0', 'theta1'],
+        var_names=["theta0", "theta1"],
         kind=["scatter"],
         marginals=True,
         scatter_kwargs={
             "color": colour,
-            "alpha": np.clip(100 / n_samples, 0.01, 1.)
+            "alpha": np.clip(100 / n_samples, 0.01, 1.0),
         },
         marginal_kwargs={
             "color": colour,
-            'fill_kwargs': {
-                'alpha': 0.10
+            "fill_kwargs": {
+                "alpha": 0.10
             }
         },
     )
@@ -149,36 +146,36 @@ def posterior_plots(
       plt.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
     image = plot_to_image(None)
 
-    if summary_writer:
+    if summary is not None:
       plot_name = f"{model_name}_theta_pairplot"
       plot_name += suffix
-      summary_writer.image(
+      summary.image(
           tag=plot_name,
           image=image,
-          step=step,
       )
 
   if show_loglinear_scatter:
     loglambda = (
-        az_data.posterior['theta0'].values +
-        az_data.posterior['theta1'].values * az_data.posterior['phi'].values)
+        az_data.posterior["theta0"].values +
+        az_data.posterior["theta1"].values * az_data.posterior["phi"].values)
     n_samples = np.prod(loglambda.shape[:-1])
 
     fig, ax = plt.subplots(figsize=(6, 4))
-    for m in range(az_data.posterior['phi'].shape[-1]):
+    for m in range(az_data.posterior["phi"].shape[-1]):
       ax.scatter(
-          az_data.posterior['phi'].values[..., m].squeeze(),
+          az_data.posterior["phi"].values[..., m].squeeze(),
           loglambda[..., m].squeeze(),
-          alpha=np.clip(100 / n_samples, 0.01, 1.),
-          label=f'{m+1}')
+          alpha=np.clip(100 / n_samples, 0.01, 1.0),
+          label=f"{m+1}",
+      )
     ax.set_xlim([0, 0.3])
     ax.set_ylim([-2.5, 2])
-    ax.set_xlabel('phi')
-    ax.set_ylabel('theta_0 + theta_1 * phi')
+    ax.set_xlabel("phi")
+    ax.set_ylabel("theta_0 + theta_1 * phi")
     ax.set_title("HPV/Cancer model" +
                  ("" if eta is None else f"\n eta {eta:.3f}"))
     leg = ax.legend(
-        title='Group', loc='lower center', ncol=4, fontsize='x-small')
+        title="Group", loc="lower center", ncol=4, fontsize="x-small")
     for lh in leg.legendHandles:
       lh.set_alpha(1)
 
@@ -188,13 +185,12 @@ def posterior_plots(
       fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
     image = plot_to_image(fig)
 
-    if summary_writer:
+    if summary is not None:
       plot_name = f"{model_name}_loglinear_scatter"
       plot_name += suffix
-      summary_writer.image(
+      summary.image(
           tag=plot_name,
           image=image,
-          step=step,
       )
 
 
@@ -219,11 +215,13 @@ def plot_vmp_map(
       lambda_init=lambda_init,
   )
   # All variational parameters, concatenated
-  lambda_grid_concat = jnp.concatenate([
-      x.reshape(len(eta_cancer_grid), -1)
-      for x in jax.tree_util.tree_leaves(lambda_grid)
-  ],
-                                       axis=-1)
+  lambda_grid_concat = jnp.concatenate(
+      [
+          x.reshape(len(eta_cancer_grid), -1)
+          for x in jax.tree_util.tree_leaves(lambda_grid)
+      ],
+      axis=-1,
+  )
 
   # Plot variational parameters as a function of eta_Y
   fig, axs = plt.subplots(
@@ -235,8 +233,8 @@ def plot_vmp_map(
   for i, idx_i in enumerate(lambda_idx_to_plot):
     axs[0, i].plot(eta_cancer_grid, lambda_grid_concat[:, idx_i])
     axs[0, i].plot(eta_cancer_grid, lambda_grid_concat[:, idx_i])
-    axs[0, i].set_xlabel('eta')
-    axs[0, i].set_ylabel(f'lambda_{idx_i}')
+    axs[0, i].set_xlabel("eta")
+    axs[0, i].set_ylabel(f"lambda_{idx_i}")
   fig.tight_layout()
 
   return fig, axs
