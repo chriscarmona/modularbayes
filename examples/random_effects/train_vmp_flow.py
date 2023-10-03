@@ -279,13 +279,13 @@ def log_images(
       images.append(plot_to_image(fig))
 
     if summary is not None:
+      plot_name = f"{model_name}_elpd_surface"
       image = img_stack_to_grid(
           images_array=stack_images(images),
-          ncol=len(images),
-          nrow=1,
+          ncol=1,
+          nrow=len(images),
           byrow=True,
       )
-      plot_name = f"{model_name}_elpd_surface"
       summary.image(
           tag=plot_name,
           image=image,
