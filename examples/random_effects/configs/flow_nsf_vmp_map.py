@@ -10,16 +10,16 @@ def get_config():
   # Data
   config.num_groups = 30
   config.num_obs_groups = [5, 5] + [5 for _ in range(config.num_groups - 2)]
-  config.loc_groups = [10., 5.] + [0. for _ in range(config.num_groups - 2)]
-  config.scale_groups = [1. for _ in range(config.num_groups)]
+  config.loc_groups = [10.0, 5.0] + [0.0 for _ in range(config.num_groups - 2)]
+  config.scale_groups = [1.0 for _ in range(config.num_groups)]
 
   # Model hyper-parameters, defining the prior.
   config.prior_hparams = None
 
-  config.method = 'vmp_map'
+  config.method = "vmp_map"
 
   # Defined in `flows`.
-  config.flow_name = 'nsf'
+  config.flow_name = "nsf"
   # kwargs to be passed to the flow
   config.flow_kwargs = ml_collections.ConfigDict()
   # Number of layers to use in the flow.
@@ -29,9 +29,9 @@ def get_config():
   # Number of bins to use in the rational-quadratic spline.
   config.flow_kwargs.num_bins = 10
   # the lower bound of the spline's range
-  config.flow_kwargs.range_min = -10.
+  config.flow_kwargs.range_min = -10.0
   # the upper bound of the spline's range
-  config.flow_kwargs.range_max = 40.
+  config.flow_kwargs.range_max = 40.0
 
   config.num_samples_elbo = 100
 
@@ -42,17 +42,17 @@ def get_config():
   config.optim_kwargs = ml_collections.ConfigDict()
   config.optim_kwargs.grad_clip_value = 1.0
   # Using SGD with warm restarts, from Loschilov & Hutter (arXiv:1608.03983).
-  config.optim_kwargs.lr_schedule_name = 'warmup_exponential_decay_schedule'
+  config.optim_kwargs.lr_schedule_name = "warmup_exponential_decay_schedule"
   config.optim_kwargs.lr_schedule_kwargs = ml_collections.ConfigDict()
   config.optim_kwargs.lr_schedule_kwargs = {
-      'init_value': 0.,
-      'peak_value': 3e-4,
-      'warmup_steps': 3_000,
-      'transition_steps': 20_000,
-      'decay_rate': 0.8,
-      'transition_begin': 0,
-      'staircase': False,
-      'end_value': None,
+      "init_value": 0.0,
+      "peak_value": 3e-4,
+      "warmup_steps": 3_000,
+      "transition_steps": 20_000,
+      "decay_rate": 0.8,
+      "transition_begin": 0,
+      "staircase": False,
+      "end_value": None,
   }
 
   # How often to evaluate the model.
@@ -71,10 +71,10 @@ def get_config():
 
   config.smi_eta_dim = config.num_groups
   config.smi_eta_plot = {
-      'full': [1. for _ in range(config.smi_eta_dim)],
-      'cut1': [0.0001, 1.] + [1. for _ in range(config.smi_eta_dim - 2)],
-      'cut2': [0.0001, 0.0001] + [1. for _ in range(config.smi_eta_dim - 2)],
-      'cut3': [1., 0.0001] + [1. for _ in range(config.smi_eta_dim - 2)],
+      "full": [1.0 for _ in range(config.smi_eta_dim)],
+      "cut1": [0.0001, 1.0] + [1.0 for _ in range(config.smi_eta_dim - 2)],
+      "cut2": [0.0001, 0.0001] + [1.0 for _ in range(config.smi_eta_dim - 2)],
+      "cut3": [1.0, 0.0001] + [1.0 for _ in range(config.smi_eta_dim - 2)],
   }
 
   # How often to save model checkpoints.
@@ -84,7 +84,7 @@ def get_config():
   config.checkpoints_keep = 1
 
   # Arguments for the Variational Meta-Posterior map
-  config.vmp_map_name = 'MLPVmpMap'
+  config.vmp_map_name = "MLPVmpMap"
   config.vmp_map_kwargs = ml_collections.ConfigDict()
   eta_dim = config.num_groups
   config.vmp_map_kwargs.hidden_sizes = [eta_dim * 10] * 5 + [20]

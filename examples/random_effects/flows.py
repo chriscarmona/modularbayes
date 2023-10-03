@@ -42,8 +42,8 @@ def get_q_nocut_nsf(
     num_layers: int,
     hidden_sizes: Sequence[int],
     num_bins: int,
-    range_min: float = 0.,
-    range_max: float = 1.,
+    range_min: float = 0.0,
+    range_max: float = 1.0,
     is_meta: bool = False,
     **_,
 ) -> distrax.Transformed:
@@ -88,7 +88,7 @@ def get_q_nocut_nsf(
               output_dim=math.prod(event_shape),
               hidden_sizes=hidden_sizes,
               num_bijector_params=num_bijector_params,
-              name='conditioner_nocut',
+              name="conditioner_nocut",
           ),
       )
     else:
@@ -99,7 +99,7 @@ def get_q_nocut_nsf(
               output_dim=math.prod(event_shape),
               hidden_sizes=hidden_sizes,
               num_bijector_params=num_bijector_params,
-              name='conditioner_nocut',
+              name="conditioner_nocut",
           ),
       )
     flow_layers.append(layer)
@@ -135,8 +135,8 @@ def get_q_cutgivennocut_nsf(
     num_layers: int,
     hidden_sizes: Sequence[int],
     num_bins: int,
-    range_min: float = 0.,
-    range_max: float = 1.,
+    range_min: float = 0.0,
+    range_max: float = 1.0,
     **_,
 ) -> modularbayes.ConditionalTransformed:
   """Creates the Rational Quadratic Flow model.
@@ -179,7 +179,7 @@ def get_q_cutgivennocut_nsf(
             output_dim=math.prod(event_shape),
             hidden_sizes=hidden_sizes,
             num_bijector_params=num_bijector_params,
-            name='conditioner_theta',
+            name="conditioner_theta",
         ),
     )
     flow_layers.append(layer)
@@ -226,7 +226,7 @@ def split_flow_cut(
     **_,
 ) -> ModelParamsCut:
   """Get model parameters by splitting samples from the flow.
-  
+
   The parameter theta contain the intercept and slope of the
   prevalence-incidence model.
   """

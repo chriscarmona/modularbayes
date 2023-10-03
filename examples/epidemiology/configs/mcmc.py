@@ -9,13 +9,13 @@ def get_config():
 
   # Model hyper-parameters, defining the prior.
   config.prior_hparams = ml_collections.ConfigDict()
-  config.prior_hparams.phi_alpha = 1.
-  config.prior_hparams.phi_beta = 1.
-  config.prior_hparams.theta0_scale = 100.
+  config.prior_hparams.phi_alpha = 1.0
+  config.prior_hparams.phi_beta = 1.0
+  config.prior_hparams.theta0_scale = 100.0
   config.prior_hparams.theta1_concentration = 1
   config.prior_hparams.theta1_rate = 0.1
 
-  config.method = 'mcmc'
+  config.method = "mcmc"
 
   config.num_chains = 4
   config.num_samples = 10_000

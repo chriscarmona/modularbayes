@@ -21,7 +21,7 @@ def load_epidemiology():
         Cancer Epidemiology and Prevention Biomarkers,
         17(3), 717-720.
     """
-  filename = 'epidemiology_plummer.csv'
+  filename = "epidemiology_plummer.csv"
   stream = pkg_resources.resource_stream(__name__, filename)
   dataset = pd.read_csv(stream)
   return dataset

@@ -14,20 +14,20 @@ tfd = tfp.distributions
 
 ModelParams = namedtuple(
     "model_params",
-    field_names=('phi', 'theta0', 'theta1'),
+    field_names=("phi", "theta0", "theta1"),
 )
 ModelParamsNoCut = namedtuple(
-    'model_params_nocut',
-    field_names=('phi',),
+    "model_params_nocut",
+    field_names=("phi",),
 )
 ModelParamsCut = namedtuple(
     "model_params_cut",
-    field_names=('theta0', 'theta1'),
+    field_names=("theta0", "theta1"),
 )
 SmiEta = namedtuple(
     "smi_eta",
-    field_names=('hpv', 'cancer'),
-    defaults=(1., 1.),
+    field_names=("hpv", "cancer"),
+    defaults=(1.0, 1.0),
 )
 
 
@@ -75,32 +75,32 @@ def logprob_joint(
   # Set default arguments
   if prior_hparams is None:
     prior_hparams = {
-        'phi_alpha': 1.,
-        'phi_beta': 1.,
-        'theta0_scale': 100.,
-        'theta1_concentration': 1,
-        'theta1_rate': 0.1,
+        "phi_alpha": 1.0,
+        "phi_beta": 1.0,
+        "theta0_scale": 100.0,
+        "theta1_concentration": 1,
+        "theta1_rate": 0.1,
     }
   if smi_eta is None:
     smi_eta = SmiEta()
 
   # Number of observations (one per population) in the data
-  n_obs = batch['Z'].shape[0]
+  n_obs = batch["Z"].shape[0]
 
   phi = model_params.phi
   theta0 = model_params.theta0
   theta1 = model_params.theta1
 
-  assert all(k in batch for k in ['Z', 'Y', 'T', 'N'])
-  assert all(batch[k].shape == (n_obs,) for k in ['Z', 'Y', 'T', 'N'])
+  assert all(k in batch for k in ["Z", "Y", "T", "N"])
+  assert all(batch[k].shape == (n_obs,) for k in ["Z", "Y", "T", "N"])
   assert phi.shape == (n_obs,)
 
   ### Define loglikelihood functions ###
   def log_prob_z_given_phi(phi: Array) -> float:
     """HPV prevalence model"""
     log_prob_ = distrax.Independent(
-        tfd.Binomial(total_count=batch['N'], probs=phi),
-        reinterpreted_batch_ndims=1).log_prob(batch['Z'])
+        tfd.Binomial(total_count=batch["N"], probs=phi),
+        reinterpreted_batch_ndims=1).log_prob(batch["Z"])
 
     return log_prob_
 
@@ -108,28 +108,32 @@ def logprob_joint(
                                  theta1: float) -> float:
     """Cancer incidence loglinear model"""
     log_incidence = theta0 + theta1 * phi
-    mu = batch['T'] * (1. / 1000) * jnp.exp(log_incidence)
+    mu = batch["T"] * (1.0 / 1000) * jnp.exp(log_incidence)
     log_prob_ = distrax.Independent(
-        tfd.Poisson(rate=mu), reinterpreted_batch_ndims=1).log_prob(batch['Y'])
+        tfd.Poisson(rate=mu), reinterpreted_batch_ndims=1).log_prob(batch["Y"])
     return log_prob_
 
   ### Define priors functions ###
   log_prob_phi = distrax.Independent(
       distrax.Beta(
-          alpha=prior_hparams['phi_alpha'] * jnp.ones(n_obs),
-          beta=prior_hparams['phi_beta'] * jnp.ones(n_obs),
+          alpha=prior_hparams["phi_alpha"] * jnp.ones(n_obs),
+          beta=prior_hparams["phi_beta"] * jnp.ones(n_obs),
       ),
-      reinterpreted_batch_ndims=1).log_prob
+      reinterpreted_batch_ndims=1,
+  ).log_prob
   log_prob_theta0 = distrax.Independent(
-      distrax.Normal(loc=[0.], scale=[prior_hparams['theta0_scale']]),
-      reinterpreted_batch_ndims=1).log_prob
+      distrax.Normal(loc=[0.0], scale=[prior_hparams["theta0_scale"]]),
+      reinterpreted_batch_ndims=1,
+  ).log_prob
   # log_prob_theta1 = tfd.TruncatedNormal(
   #     loc=0., scale=100., low=0.0, high=jnp.inf).log_prob
   log_prob_theta1 = distrax.Independent(
       distrax.Gamma(
-          concentration=[prior_hparams['theta1_concentration']],
-          rate=[prior_hparams['theta1_rate']]),
-      reinterpreted_batch_ndims=1).log_prob
+          concentration=[prior_hparams["theta1_concentration"]],
+          rate=[prior_hparams["theta1_rate"]],
+      ),
+      reinterpreted_batch_ndims=1,
+  ).log_prob
 
   log_prob = (
       log_prob_z_given_phi(phi) * smi_eta.hpv +

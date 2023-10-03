@@ -14,19 +14,19 @@ tfd = tfp.distributions
 
 ModelParams = namedtuple(
     "model_params",
-    field_names=('sigma', 'beta', 'tau'),
+    field_names=("sigma", "beta", "tau"),
 )
 ModelParamsNoCut = namedtuple(
-    'model_params_nocut',
-    field_names=('sigma',),
+    "model_params_nocut",
+    field_names=("sigma",),
 )
 ModelParamsCut = namedtuple(
     "model_params_cut",
-    field_names=('beta', 'tau'),
+    field_names=("beta", "tau"),
 )
 SmiEta = namedtuple(
     "smi_eta",
-    field_names=('groups'),
+    field_names=("groups"),
     defaults=(1.0,),
 )
 
@@ -55,8 +55,9 @@ def logprob_joint(
   ### Define loglikelihood function ###
   def log_prob_y_given_betasigma(beta: Array, sigma: Array) -> float:
     return distrax.Independent(
-        distrax.Normal(loc=beta[batch['group']], scale=sigma[batch['group']]),
-        reinterpreted_batch_ndims=1).log_prob(batch['Y'])
+        distrax.Normal(loc=beta[batch["group"]], scale=sigma[batch["group"]]),
+        reinterpreted_batch_ndims=1,
+    ).log_prob(batch["Y"])
 
   # Define priors
   def log_prob_beta_given_tau(beta: Array, tau: Array,
@@ -85,8 +86,8 @@ def logprob_joint(
           eta_groups=smi_eta.groups) + log_prob_tau(
               tau=model_params.tau,
               sigma=model_params.sigma,
-              num_obs_groups=batch['num_obs_groups']) +
-      log_prob_sigma(sigma=model_params.sigma))
+              num_obs_groups=batch["num_obs_groups"],
+          ) + log_prob_sigma(sigma=model_params.sigma))
 
   return log_prob
 
@@ -103,7 +104,8 @@ def sample_eta_values(
       key=prng_key,
       a=eta_sampling_a,
       b=eta_sampling_b,
-      shape=(num_samples, num_groups))
+      shape=(num_samples, num_groups),
+  )
   # smi_etas = jnp.concatenate(
   #     [smi_etas, jnp.ones((num_samples, num_groups - 3))], axis=-1)
   smi_etas = SmiEta(groups=smi_etas)

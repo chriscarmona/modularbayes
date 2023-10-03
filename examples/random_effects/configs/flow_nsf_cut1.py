@@ -10,16 +10,16 @@ def get_config():
   # Data
   config.num_groups = 30
   config.num_obs_groups = [5, 5] + [5 for _ in range(config.num_groups - 2)]
-  config.loc_groups = [10., 5.] + [0. for _ in range(config.num_groups - 2)]
-  config.scale_groups = [1. for _ in range(config.num_groups)]
+  config.loc_groups = [10.0, 5.0] + [0.0 for _ in range(config.num_groups - 2)]
+  config.scale_groups = [1.0 for _ in range(config.num_groups)]
 
   # Model hyper-parameters, defining the prior.
   config.prior_hparams = None
 
-  config.method = 'flow'
+  config.method = "flow"
 
   # Defined in `flows`.
-  config.flow_name = 'nsf'
+  config.flow_name = "nsf"
 
   # kwargs to be passed to the flow
   config.flow_kwargs = ml_collections.ConfigDict()
@@ -30,14 +30,14 @@ def get_config():
   # Number of bins to use in the rational-quadratic spline.
   config.flow_kwargs.num_bins = 10
   # the lower bound of the spline's range
-  config.flow_kwargs.range_min = -10.
+  config.flow_kwargs.range_min = -10.0
   # the upper bound of the spline's range
-  config.flow_kwargs.range_max = 40.
+  config.flow_kwargs.range_max = 40.0
 
   # SMI degree of influence
-  config.smi_eta_groups = [0.0001, 1.
-                          ] + [1. for _ in range(config.num_groups - 2)]
-  config.plot_suffix = '_cut1'
+  config.smi_eta_groups = [0.0001, 1.0
+                          ] + [1.0 for _ in range(config.num_groups - 2)]
+  config.plot_suffix = "_cut1"
 
   # Number of samples used to estimate the ELBO.
   config.num_samples_elbo = 10
@@ -48,17 +48,17 @@ def get_config():
   # Optimizer.
   config.optim_kwargs = ml_collections.ConfigDict()
   config.optim_kwargs.grad_clip_value = 1.0
-  config.optim_kwargs.lr_schedule_name = 'warmup_exponential_decay_schedule'
+  config.optim_kwargs.lr_schedule_name = "warmup_exponential_decay_schedule"
   config.optim_kwargs.lr_schedule_kwargs = ml_collections.ConfigDict()
   config.optim_kwargs.lr_schedule_kwargs = {
-      'init_value': 0.,
-      'peak_value': 2e-3,
-      'warmup_steps': 2_000,
-      'transition_steps': 10_000,
-      'decay_rate': 0.5,
-      'transition_begin': 0,
-      'staircase': False,
-      'end_value': None,
+      "init_value": 0.0,
+      "peak_value": 2e-3,
+      "warmup_steps": 2_000,
+      "transition_steps": 10_000,
+      "decay_rate": 0.5,
+      "transition_begin": 0,
+      "staircase": False,
+      "end_value": None,
   }
 
   # How often to evaluate the model.

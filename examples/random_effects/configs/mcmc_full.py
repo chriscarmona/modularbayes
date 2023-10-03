@@ -10,13 +10,13 @@ def get_config():
   # Data
   config.num_groups = 30
   config.num_obs_groups = [5, 5] + [5 for _ in range(config.num_groups - 2)]
-  config.loc_groups = [10., 5.] + [0. for _ in range(config.num_groups - 2)]
-  config.scale_groups = [1. for _ in range(config.num_groups)]
+  config.loc_groups = [10.0, 5.0] + [0.0 for _ in range(config.num_groups - 2)]
+  config.scale_groups = [1.0 for _ in range(config.num_groups)]
 
   # Model hyper-parameters, defining the prior.
   config.prior_hparams = None
 
-  config.method = 'mcmc'
+  config.method = "mcmc"
 
   config.num_chains = 4
   config.num_samples = 10_000
@@ -25,7 +25,7 @@ def get_config():
   config.num_steps_call_warmup = 100
 
   config.smi_eta_groups = [1.0 for _ in range(config.num_groups)]
-  config.plot_suffix = '_full'
+  config.plot_suffix = "_full"
 
   config.seed = 0
 
