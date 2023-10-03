@@ -1,7 +1,7 @@
 """MCMC sampling for the model."""
 
 import os
-
+import pathlib
 import time
 
 from absl import logging
@@ -19,28 +19,43 @@ import distrax
 import blackjax
 from blackjax.mcmc.hmc import HMCState
 from blackjax.mcmc.nuts import NUTSInfo
-from blackjax.types import PyTree
 
 from tensorflow_probability.substrates import jax as tfp
 
-from flax.metrics import tensorboard
+from objax.jaxboard import SummaryWriter, Summary
 
-from modularbayes import flatten_dict
-from modularbayes._src.typing import (Any, Array, Batch, Callable, ConfigDict,
-                                      Dict, Mapping, Optional, PRNGKey, Tuple)
+from modularbayes._src.typing import (
+    Any,
+    Array,
+    ArrayTree,
+    Batch,
+    Callable,
+    ConfigDict,
+    Dict,
+    Mapping,
+    Optional,
+    PRNGKey,
+    Tuple,
+)
 
 import plot
 from train_flow import load_data
 import log_prob_fun
 from log_prob_fun import ModelParams, ModelParamsCut, ModelParamsNoCut, SmiEta
-from flows import (bijector_domain_nocut, bijector_domain_cut, split_flow_nocut,
-                   split_flow_cut, concat_flow_nocut, concat_flow_cut)
+from flows import (
+    bijector_domain_nocut,
+    bijector_domain_cut,
+    split_flow_nocut,
+    split_flow_cut,
+    concat_flow_nocut,
+    concat_flow_cut,
+)
 
 tfb = tfp.bijectors
 kernels = tfp.math.psd_kernels
 
 # Set high precision for matrix multiplication in jax
-jax.config.update('jax_default_matmul_precision', 'float32')
+jax.config.update("jax_default_matmul_precision", "float32")
 
 np.set_printoptions(suppress=True, precision=4)
 
@@ -48,7 +63,7 @@ np.set_printoptions(suppress=True, precision=4)
 def call_warmup(
     prng_key: PRNGKey,
     logdensity_fn: Callable,
-    model_params: PyTree,
+    model_params: ArrayTree,
     num_steps: int,
 ) -> Tuple:
   warmup = blackjax.window_adaptation(
@@ -74,12 +89,13 @@ def inference_loop_stg1(
 
   def one_step(states, rng_keys):
     kernel_fn_multichain = jax.vmap(
-        lambda state_, hmc_param_, key_nuts_: blackjax.nuts.kernel()(
+        lambda state_, hmc_param_, key_nuts_: blackjax.nuts(
+            logdensity_fn=logdensity_fn,
+            step_size=hmc_param_["step_size"],
+            inverse_mass_matrix=hmc_param_["inverse_mass_matrix"],
+        ).step(
             rng_key=key_nuts_,
             state=state_,
-            logdensity_fn=logdensity_fn,
-            step_size=hmc_param_['step_size'],
-            inverse_mass_matrix=hmc_param_['inverse_mass_matrix'],
         ))
     states_new, infos_new = kernel_fn_multichain(
         states,
@@ -108,19 +124,19 @@ def inference_loop_stg2(
     num_samples_stg2: int,
     num_chains: int,
 ):
-
   # We only need to keep the last sample of the subchains
   def one_step(states, rng_keys):
     kernel_fn_multichain = jax.vmap(
-        lambda state, cond, hmc_param, key_nuts_: blackjax.nuts.kernel()(
-            rng_key=key_nuts_,
-            state=state,
+        lambda state, cond, hmc_param, key_nuts_: blackjax.nuts(
             logdensity_fn=lambda x: logdensity_fn_conditional(
                 model_params_sampled=x,
                 model_params_cond=cond,
             ),
-            step_size=hmc_param['step_size'],
-            inverse_mass_matrix=hmc_param['inverse_mass_matrix'],
+            step_size=hmc_param["step_size"],
+            inverse_mass_matrix=hmc_param["inverse_mass_matrix"],
+        ).step(
+            rng_key=key_nuts_,
+            state=state,
         ))
     kernel_fn_multicond_multichain = jax.vmap(
         lambda states_, conds_, keys_nuts_: kernel_fn_multichain(
@@ -159,13 +175,13 @@ def init_param_fn_stg1(
   prng_seq = hk.PRNGSequence(prng_key)
   # Dictionary with shapes of model parameters in stage 1
   samples_shapes = {
-      'beta': (num_groups,),
-      'sigma': (num_groups,),
-      'tau': (1,),
+      "beta": (num_groups,),
+      "sigma": (num_groups,),
+      "tau": (1,),
   }
   # Get a sample for all parameters
   samples_ = jax.tree_map(
-      lambda shape_i: distrax.Normal(0., 1.).sample(
+      lambda shape_i: distrax.Normal(0.0, 1.0).sample(
           seed=next(prng_seq), sample_shape=shape_i),
       tree=samples_shapes,
       is_leaf=lambda x: isinstance(x, Tuple),
@@ -184,8 +200,8 @@ def transform_model_params(
   # Transform no-cut parameters
   concat_params_nocut_unb = concat_flow_nocut(
       ModelParamsNoCut(
-          **
-          {k: model_params_unb._asdict()[k] for k in ModelParamsNoCut._fields}))
+          **{k: model_params_unb._asdict()[k]
+             for k in ModelParamsNoCut._fields}))
   bij_nocut = bijector_domain_nocut()
   concat_params_nocut, log_det_jacob_nocut = bij_nocut.forward_and_log_det(
       concat_params_nocut_unb)
@@ -219,8 +235,7 @@ def logprob_joint_unb(
     prior_hparams: Optional[Dict[str, float]] = None,
     smi_eta: Optional[SmiEta] = None,
 ):
-  """Joint log probability of the model taking unbounded input parameters.
-  """
+  """Joint log probability of the model taking unbounded input parameters."""
 
   (model_params, log_det_jacob) = transform_model_params(model_params_unb)
 
@@ -242,8 +257,9 @@ def logprob_joint_unb(
 def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
   """Sample and evaluate the random effects model."""
 
-  # Add trailing slash
-  workdir = workdir.rstrip("/") + '/'
+  # output directory
+  workdir = workdir.rstrip("/") + "/"
+  pathlib.Path(workdir).mkdir(parents=True, exist_ok=True)
 
   # Initialize random keys
   prng_seq = hk.PRNGSequence(config.seed)
@@ -263,22 +279,18 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       scale_groups=true_params.sigma,
   )
 
-  samples_path_stg1 = workdir + 'mcmc_samples_stg1_unb_az.nc'
-  samples_path = workdir + 'mcmc_samples_az.nc'
+  samples_path_stg1 = workdir + "mcmc_samples_stg1_unb_az.nc"
+  samples_path = workdir + "mcmc_samples_az.nc"
 
   # Set eta for modules
   smi_eta = SmiEta(groups=jnp.array(config.smi_eta_groups))
-
-  if jax.process_index() == 0:
-    summary_writer = tensorboard.SummaryWriter(workdir)
-    summary_writer.hparams(flatten_dict(config))
 
   if os.path.exists(samples_path):
     logging.info("\t Loading final samples")
     az_data = az.from_netcdf(samples_path)
   else:
     times_data = {}
-    times_data['start_sampling'] = time.perf_counter()
+    times_data["start_sampling"] = time.perf_counter()
 
     ### Sample First Stage ###
     if os.path.exists(samples_path_stg1):
@@ -307,7 +319,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
           jax.random.split(next(prng_seq), config.num_chains))
 
       # Tune HMC parameters automatically
-      logging.info('\t tuning HMC parameters stg1...')
+      logging.info("\t tuning HMC parameters stg1...")
       initial_states_stg1, hmc_params_stg1 = jax.vmap(lambda x, y: call_warmup(
           prng_key=x,
           logdensity_fn=logdensity_fn_stg1,
@@ -319,7 +331,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       )
 
       # Sampling loop stage 1
-      logging.info('\t sampling stage 1...')
+      logging.info("\t sampling stage 1...")
       states_stg1, _ = inference_loop_stg1(
           prng_key=next(prng_seq),
           initial_states=initial_states_stg1,
@@ -342,12 +354,13 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       # Save InferenceData object from stage 1
       az_data_stg1_unb_az.to_netcdf(samples_path_stg1)
 
-      logging.info("\t\t posterior means no-cut parameters (before transform):")
+      logging.info("\t\t Posterior means no-cut parameters (before transform):")
       for k in az_data_stg1_unb_az.posterior:
-        logging.info("\t\t %s: %s", k,
-                     str(az_data_stg1_unb_az.posterior[k].shape))
+        logging.info(
+            "\t\t %s: %s", k,
+            str(jnp.array(az_data_stg1_unb_az.posterior[k]).mean(axis=[0, 1])))
 
-      times_data['end_mcmc_stg_1'] = time.perf_counter()
+      times_data["end_mcmc_stg_1"] = time.perf_counter()
 
     ### Sample Second Stage ###
     logging.info("\t Stage 2...")
@@ -374,7 +387,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       return logprob_
 
     # Tune HMC parameters automatically
-    logging.info('\t tuning HMC parameters stg2...')
+    logging.info("\t tuning HMC parameters stg2...")
 
     # We tune the HMC for one sample in stage 1
     # tune HMC parameters, vmap across chains, using one sample from stage 1
@@ -410,8 +423,8 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
             model_params_sampled=param_,
             model_params_cond=cond,
         ),
-        step_size=hmc_param['step_size'],
-        inverse_mass_matrix=hmc_param['inverse_mass_matrix'],
+        step_size=hmc_param["step_size"],
+        inverse_mass_matrix=hmc_param["inverse_mass_matrix"],
     ).init(position=param))
     init_fn_multicond_multichain = jax.vmap(
         lambda param_, cond_: init_fn_multichain(
@@ -424,19 +437,25 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     # of theta_aux from stage 1
     initial_position_i = ModelParamsCut(
         **{
-            k: jnp.array(az_data_stg1_unb_az.posterior[k])
-            [:, :config.num_samples_perchunk_stg2, ...].swapaxes(0, 1)
+            k:
+                jnp.array(az_data_stg1_unb_az.posterior[k])
+                [:, :config.num_samples_perchunk_stg2, ...].swapaxes(0, 1)
             for k in ModelParamsCut._fields
         })
 
-    logging.info('\t sampling stage 2...')
+    logging.info("\t sampling stage 2...")
     samples_chunks = []
     for i in range(num_chunks_stg2):
       # Take a chunk of samples from the conditional (no-cut) parameters
       cond_i = jax.tree_map(
-          lambda x: x[:, (i * config.num_samples_perchunk_stg2):(
-              (i + 1) * config.num_samples_perchunk_stg2), ...].swapaxes(0, 1),
-          model_params_condstg2_unb_samples)
+          lambda x: x[
+              :,
+              (i * config.num_samples_perchunk_stg2):
+              ((i + 1) * config.num_samples_perchunk_stg2),
+              ...,
+          ].swapaxes(0, 1),
+          model_params_condstg2_unb_samples,
+      )
       # Get value to initialize sampling in this chunk
       initial_state_i = init_fn_multicond_multichain(initial_position_i, cond_i)
       # Sampling loop for this chunk of stage 2
@@ -456,11 +475,12 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       # Subsequent chunks initialise in last position of the previous chunk
       initial_position_i = states_stg2_i.position
 
-    times_data['end_mcmc_stg_2'] = time.perf_counter()
+    times_data["end_mcmc_stg_2"] = time.perf_counter()
 
     # Concatenate samples from each chunk, across samples dimension
-    model_params_cut_unb_samples = jax.tree_map(  # pylint: disable=no-value-for-parameter
-        lambda *x: jnp.concatenate(x, axis=0), *samples_chunks)
+    model_params_cut_unb_samples = (
+        jax.tree_map(  # pylint: disable=no-value-for-parameter
+            lambda *x: jnp.concatenate(x, axis=0), *samples_chunks))
     # swap axes to have shape (num_chains, num_samples, ...)
     model_params_cut_unb_samples = jax.tree_map(lambda x: x.swapaxes(0, 1),
                                                 model_params_cut_unb_samples)
@@ -484,23 +504,29 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     for param_name_ in ModelParams._fields:
       logging.info(
           f"\t\t Posterior means {param_name_}: %s",
-          str(jnp.array(az_data.posterior[param_name_]).mean(axis=[0, 1])))
+          str(jnp.array(az_data.posterior[param_name_]).mean(axis=[0, 1])),
+      )
 
-    times_data['end_sampling'] = time.perf_counter()
+    times_data["end_sampling"] = time.perf_counter()
 
     logging.info("Sampling times:")
-    logging.info("\t Total: %s",
-                 str(times_data['end_sampling'] - times_data['start_sampling']))
-    if ('start_mcmc_stg_1' in times_data) and ('end_mcmc_stg_1' in times_data):
+    logging.info(
+        "\t Total: %s",
+        str(times_data["end_sampling"] - times_data["start_sampling"]),
+    )
+    if ("start_mcmc_stg_1" in times_data) and ("end_mcmc_stg_1" in times_data):
       logging.info(
           "\t Stg 1: %s",
-          str(times_data['end_mcmc_stg_1'] - times_data['start_mcmc_stg_1']))
-    if ('start_mcmc_stg_2' in times_data) and ('end_mcmc_stg_2' in times_data):
+          str(times_data["end_mcmc_stg_1"] - times_data["start_mcmc_stg_1"]),
+      )
+    if ("start_mcmc_stg_2" in times_data) and ("end_mcmc_stg_2" in times_data):
       logging.info(
           "\t Stg 2: %s",
-          str(times_data['end_mcmc_stg_2'] - times_data['start_mcmc_stg_2']))
+          str(times_data["end_mcmc_stg_2"] - times_data["start_mcmc_stg_2"]),
+      )
 
-  ### Posterior visualisation with Arviz
+  tensorboard = SummaryWriter(workdir)
+  summary = Summary()
 
   logging.info("Plotting results...")
   plot.posterior_plots(
@@ -511,10 +537,12 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       betasigma_pairplot_groups=(0, 1, 2),
       tausigma_pairplot_groups=(0, 1, 2),
       suffix=config.plot_suffix,
-      step=0,
       workdir_png=workdir,
-      summary_writer=summary_writer,
+      summary=summary,
   )
+  # Write metrics to tensorboard
+  tensorboard.write(summary=summary, step=0)
+  tensorboard.close()
   logging.info("...done!")
 
 

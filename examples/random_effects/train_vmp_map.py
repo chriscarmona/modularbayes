@@ -11,29 +11,48 @@ from matplotlib import pyplot as plt
 
 import jax
 from jax import numpy as jnp
-from flax.metrics import tensorboard
-from flax.training.train_state import TrainState
 import haiku as hk
 import optax
 import orbax.checkpoint
+from objax.jaxboard import SummaryWriter, Summary
 
 import flows
 from flows import split_flow_nocut, split_flow_cut
-from log_prob_fun import (ModelParams, ModelParamsCut, SmiEta, logprob_joint,
-                          sample_eta_values)
+from log_prob_fun import (
+    ModelParams,
+    ModelParamsCut,
+    SmiEta,
+    logprob_joint,
+    sample_eta_values,
+)
 import plot
-from train_flow import (elpd_waic, elpd_truth_mc, init_state_tuple, load_data,
-                        sample_q_as_az)
+from train_flow import (
+    elpd_waic,
+    elpd_truth_mc,
+    init_state_tuple,
+    load_data,
+    sample_q_as_az,
+)
 
 import modularbayes
 from modularbayes import elbo_smi_vmpmap, sample_q, train_step
-from modularbayes import (flatten_dict, plot_to_image, normalize_images)
-from modularbayes._src.typing import (Any, Array, Callable, ConfigDict, Dict,
-                                      List, Optional, PRNGKey,
-                                      SmiPosteriorStates, Tuple)
+from modularbayes import img_stack_to_grid, plot_to_image, stack_images
+from modularbayes._src.typing import (
+    Any,
+    Array,
+    Callable,
+    ConfigDict,
+    Dict,
+    List,
+    Optional,
+    PRNGKey,
+    SmiPosteriorStates,
+    TrainState,
+    Tuple,
+)
 
 # Set high precision for matrix multiplication in jax
-jax.config.update('jax_default_matmul_precision', 'float32')
+jax.config.update("jax_default_matmul_precision", "float32")
 
 np.set_printoptions(suppress=True, precision=4)
 
@@ -63,7 +82,8 @@ def print_trainable_params(
       f=lambda state_i, lambda_init_i: state_i.apply_fn(
           state_i.params,
           eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
-          lambda_init=lambda_init_i),
+          lambda_init=lambda_init_i,
+      ),
       columns=(
           "module",
           "owned_params",
@@ -72,14 +92,14 @@ def print_trainable_params(
       ),
       filters=("has_params",),
   )
-  summary = tabulate_fn_(state_tuple[0], lambda_init_tuple[0])
-  logging.info('VMP-MAP no-cut parameters:')
-  for line in summary.split("\n"):
+  exec_str_ = tabulate_fn_(state_tuple[0], lambda_init_tuple[0])
+  logging.info("VMP-MAP no-cut parameters:")
+  for line in exec_str_.split("\n"):
     logging.info(line)
 
-  summary = tabulate_fn_(state_tuple[1], lambda_init_tuple[1])
-  logging.info('VMP-MAP cut parameters:')
-  for line in summary.split("\n"):
+  exec_str_ = tabulate_fn_(state_tuple[1], lambda_init_tuple[1])
+  logging.info("VMP-MAP cut parameters:")
+  for line in exec_str_.split("\n"):
     logging.info(line)
 
 
@@ -90,7 +110,7 @@ def loss_fn(params_tuple: Tuple[hk.Params], *args, **kwargs) -> Array:
   elbo_dict = elbo_smi_vmpmap(alpha_tuple=params_tuple, *args, **kwargs)
 
   # Our loss is the Negative ELBO
-  loss_avg = -(jnp.nanmean(elbo_dict['stage_1'] + elbo_dict['stage_2']))
+  loss_avg = -(jnp.nanmean(elbo_dict["stage_1"] + elbo_dict["stage_2"]))
 
   return loss_avg
 
@@ -128,7 +148,7 @@ def plot_elpd_surface(
       split_flow_fn_nocut=split_flow_nocut,
       split_flow_fn_cut=split_flow_cut,
       sample_shape=(config.num_samples_elpd,),
-  )['model_params_sample'])
+  )["model_params_sample"])
 
   # Produce flow parameters as a function of eta
   lambda_tuple = tuple(
@@ -167,7 +187,8 @@ def plot_elpd_surface(
       ncols=1 if true_params is None else 2,
       figsize=(4 if true_params is None else 8, 3),
       subplot_kw={"projection": "3d"},
-      squeeze=False)
+      squeeze=False,
+  )
   elpd_waic_grid = jnp.array(elpd_waic_grid).reshape(eta_grid.shape[:-1])
   axs[0, 0].plot_surface(
       eta_grid[..., eta_grid_x_y_idx[0]],
@@ -178,9 +199,9 @@ def plot_elpd_surface(
       # antialiased=False,
   )
   axs[0, 0].view_init(30, 225)
-  axs[0, 0].set_xlabel(f'eta_{eta_grid_x_y_idx[0]}')
-  axs[0, 0].set_ylabel(f'eta_{eta_grid_x_y_idx[1]}')
-  axs[0, 0].set_title('- ELPD WAIC')
+  axs[0, 0].set_xlabel(f"eta_{eta_grid_x_y_idx[0]}")
+  axs[0, 0].set_ylabel(f"eta_{eta_grid_x_y_idx[1]}")
+  axs[0, 0].set_title("- ELPD WAIC")
   if true_params is not None:
     elpd_grid = jnp.array(elpd_grid).reshape(eta_grid.shape[:-1])
     axs[0, 1].plot_surface(
@@ -192,9 +213,9 @@ def plot_elpd_surface(
         # antialiased=False,
     )
     axs[0, 1].view_init(30, 225)
-    axs[0, 1].set_xlabel(f'eta_{eta_grid_x_y_idx[0]}')
-    axs[0, 1].set_ylabel(f'eta_{eta_grid_x_y_idx[1]}')
-    axs[0, 1].set_title('- ELPD')
+    axs[0, 1].set_xlabel(f"eta_{eta_grid_x_y_idx[0]}")
+    axs[0, 1].set_ylabel(f"eta_{eta_grid_x_y_idx[1]}")
+    axs[0, 1].set_title("- ELPD")
   fig.tight_layout()
 
   return fig, axs
@@ -211,21 +232,21 @@ def log_images(
     flow_get_fn_cutgivennocut: Callable,
     show_elpd_surface: bool,
     true_params: ModelParams,
-    summary_writer: Optional[tensorboard.SummaryWriter] = None,
+    summary: Optional[SummaryWriter] = None,
     workdir_png: Optional[str] = None,
 ) -> None:
   """Plots to monitor during training."""
 
-  model_name = 'random_effects'
+  model_name = "random_effects"
 
   prng_seq = hk.PRNGSequence(prng_key)
 
-  assert len(config.smi_eta_plot.keys()) > 0, 'No eta values to plot'
+  assert len(config.smi_eta_plot.keys()) > 0, "No eta values to plot"
 
   # We can obtain the variational parameters for all eta values at once
   smi_etas = SmiEta(groups=jnp.array(config.smi_eta_plot.values()))
-  eta_values = (
-      smi_etas[0] if len(smi_etas) == 1 else jnp.stack(smi_etas, axis=-1))
+  eta_values = smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
+      smi_etas, axis=-1)
   # Produce flow parameters as a function of eta
   lambda_tuple = [
       state_i.apply_fn(
@@ -253,10 +274,9 @@ def log_images(
         show_tau_trace=False,
         betasigma_pairplot_groups=(0, 1, 2),
         tausigma_pairplot_groups=(0, 1, 2),
-        suffix=f'_{suffix}',
-        step=state_tuple[0].step,
+        suffix=f"_{suffix}",
         workdir_png=workdir_png,
-        summary_writer=summary_writer,
+        summary=summary,
     )
 
   if show_elpd_surface:
@@ -265,16 +285,19 @@ def log_images(
 
     # Define elements to grate grid of eta values
     eta_grid_base = np.tile(
-        np.array([0., 0.] + [1. for _ in range(config.num_groups - 2)]),
-        [eta_grid_len + 1, eta_grid_len + 1, 1])
+        np.array([0.0, 0.0] + [1.0 for _ in range(config.num_groups - 2)]),
+        [eta_grid_len + 1, eta_grid_len + 1, 1],
+    )
     eta_grid_mini = np.stack(
         np.meshgrid(
             np.linspace(0, 1, eta_grid_len + 1).round(5),
-            np.linspace(0, 1, eta_grid_len + 1).round(5)),
-        axis=0).T
+            np.linspace(0, 1, eta_grid_len + 1).round(5),
+        ),
+        axis=0,
+    ).T
 
     # Vary eta_0 and eta_1
-    plot_name = f'{model_name}_elpd_surface_eta_0_1'
+    plot_name = f"{model_name}_elpd_surface_eta_0_1"
     eta_grid = eta_grid_base.copy()
     eta_grid_x_y_idx = [0, 1]
     eta_grid[:, :, eta_grid_x_y_idx] = eta_grid_mini
@@ -292,11 +315,11 @@ def log_images(
     )
     if workdir_png:
       fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
-    if summary_writer:
+    if summary is not None:
       images.append(plot_to_image(fig))
 
     # Vary eta_0 and eta_2
-    plot_name = f'{model_name}_elpd_surface_eta_0_2'
+    plot_name = f"{model_name}_elpd_surface_eta_0_2"
     eta_grid = eta_grid_base.copy()
     eta_grid_x_y_idx = [0, 2]
     eta_grid[:, :, eta_grid_x_y_idx] = eta_grid_mini
@@ -314,32 +337,36 @@ def log_images(
     )
     if workdir_png:
       fig.savefig(pathlib.Path(workdir_png) / (plot_name + ".png"))
-    if summary_writer:
+    if summary is not None:
       images.append(plot_to_image(fig))
 
-    if summary_writer:
+    if summary is not None:
       plot_name = f"{model_name}_elpd_surface"
-      summary_writer.image(
+      image = img_stack_to_grid(
+          images_array=stack_images(images),
+          ncol=len(images),
+          nrow=1,
+          byrow=True,
+      )
+      summary.image(
           tag=plot_name,
-          image=normalize_images(images),
-          step=state_tuple[0].step,
-          max_outputs=len(images),
+          image=image,
       )
 
 
 def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   """Execute model training and evaluation loop.
 
-  Args:
-    config: Hyperparameter configuration for training and evaluation.
-    workdir: Directory where the tensorboard summaries are written to.
+    Args:
+      config: Hyperparameter configuration for training and evaluation.
+      workdir: Directory where the tensorboard summaries are written to.
 
-  Returns:
-    Final TrainState.
-  """
+    Returns:
+      Final TrainState.
+    """
 
   # Add trailing slash
-  workdir = workdir.rstrip("/") + '/'
+  workdir = workdir.rstrip("/") + "/"
 
   # Initialize random keys
   prng_seq = hk.PRNGSequence(config.seed)
@@ -365,19 +392,11 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   # Also is_smi modifies the dimension of the flow, due to the duplicated params
   config.flow_kwargs.is_smi = True
 
-  # writer = metric_writers.create_default_writer(
-  #     logdir=workdir, just_logging=jax.host_id() != 0)
-  if jax.process_index() == 0:
-    summary_writer = tensorboard.SummaryWriter(workdir)
-    summary_writer.hparams(flatten_dict(config))
-  else:
-    summary_writer = None
-
   # Functions that generate the NF for no-cut params
-  flow_get_fn_nocut = getattr(flows, 'get_q_nocut_' + config.flow_name)
+  flow_get_fn_nocut = getattr(flows, "get_q_nocut_" + config.flow_name)
   # Functions that generate the NF for cut params (conditional on no-cut params)
   flow_get_fn_cutgivennocut = getattr(flows,
-                                      'get_q_cutgivennocut_' + config.flow_name)
+                                      "get_q_cutgivennocut_" + config.flow_name)
 
   # To initialize the VMP-map, we need one example of its output
   # The output of the VMP-map is lambda, the parameters of the variational posterior
@@ -405,7 +424,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       vmpmap_fn.init(
           next(prng_seq),
           eta_values=jnp.ones((config.num_samples_elbo, config.smi_eta_dim)),
-          lambda_init=lambda_init_) for lambda_init_ in lambda_init_tuple
+          lambda_init=lambda_init_,
+      ) for lambda_init_ in lambda_init_tuple
   ]
   state_tuple = SmiPosteriorStates(*[
       TrainState.create(
@@ -424,7 +444,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   # Create checkpoint managers for the three states
   orbax_ckpt_mngrs = [
       orbax.checkpoint.CheckpointManager(
-          directory=str(pathlib.Path(workdir) / 'checkpoints' / state_name),
+          directory=str(pathlib.Path(workdir) / "checkpoints" / state_name),
           checkpointers=orbax.checkpoint.PyTreeCheckpointer(),
           options=orbax.checkpoint.CheckpointManagerOptions(
               max_to_keep=1,
@@ -449,37 +469,39 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         prng_key=prng_key,
         loss=loss_fn,
         loss_kwargs={
-            'num_samples': config.num_samples_elbo,
-            'vmpmap_fn': vmpmap_fn,
-            'lambda_init_tuple': lambda_init_tuple,
-            'sample_eta_fn': sample_eta_values,
-            'sample_eta_kwargs': {
-                'num_groups': config.num_groups,
-                'eta_sampling_a': config.eta_sampling_a,
-                'eta_sampling_b': config.eta_sampling_b
+            "num_samples": config.num_samples_elbo,
+            "vmpmap_fn": vmpmap_fn,
+            "lambda_init_tuple": lambda_init_tuple,
+            "sample_eta_fn": sample_eta_values,
+            "sample_eta_kwargs": {
+                "num_groups": config.num_groups,
+                "eta_sampling_a": config.eta_sampling_a,
+                "eta_sampling_b": config.eta_sampling_b,
             },
-            'elbo_smi_kwargs': {
-                'logprob_joint_fn': logprob_joint,
-                'flow_get_fn_nocut': flow_get_fn_nocut,
-                'flow_get_fn_cutgivennocut': flow_get_fn_cutgivennocut,
-                'flow_kwargs': config.flow_kwargs,
-                'prior_hparams': config.prior_hparams,
-                'model_params_tupleclass': ModelParams,
-                'model_params_cut_tupleclass': ModelParamsCut,
-                'split_flow_fn_nocut': split_flow_nocut,
-                'split_flow_fn_cut': split_flow_cut,
-            }
+            "elbo_smi_kwargs": {
+                "logprob_joint_fn": logprob_joint,
+                "flow_get_fn_nocut": flow_get_fn_nocut,
+                "flow_get_fn_cutgivennocut": flow_get_fn_cutgivennocut,
+                "flow_kwargs": config.flow_kwargs,
+                "prior_hparams": config.prior_hparams,
+                "model_params_tupleclass": ModelParams,
+                "model_params_cut_tupleclass": ModelParamsCut,
+                "split_flow_fn_nocut": split_flow_nocut,
+                "split_flow_fn_cut": split_flow_cut,
+            },
         },
     )
 
   if state_tuple[0].step < config.training_steps:
-    logging.info('Training Variational Meta-Posterior (VMP-map)...')
+    logging.info("Training Variational Meta-Posterior (VMP-map)...")
 
   # Reset random key sequence
   prng_seq = hk.PRNGSequence(config.seed)
 
-  while state_tuple[0].step < config.training_steps:
+  tensorboard = SummaryWriter(workdir)
 
+  while state_tuple[0].step < config.training_steps:
+    summary = Summary()
     # Plots to monitor training
     if (config.log_img_steps
         is not None) and (state_tuple[0].step % config.log_img_steps == 0):
@@ -495,18 +517,17 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
           show_elpd_surface=True,
           true_params=true_params,
-          summary_writer=summary_writer,
+          summary=summary,
           workdir_png=workdir,
       )
       plt.close()
       logging.info("\t\t...done logging plots.")
 
     # Log learning rate
-    summary_writer.scalar(
-        tag='learning_rate',
+    summary.scalar(
+        tag="learning_rate",
         value=getattr(optax, config.optim_kwargs.lr_schedule_name)(
             **config.optim_kwargs.lr_schedule_kwargs)(state_tuple[0].step),
-        step=state_tuple[0].step,
     )
 
     # SGD step
@@ -515,29 +536,37 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         batch=train_ds,
         prng_key=next(prng_seq),
     )
-    if jax.lax.is_finite(metrics['train_loss']):
+    if jax.lax.is_finite(metrics["train_loss"]):
       state_tuple = state_tuple_
 
     # The computed training loss would correspond to the model before update
-    summary_writer.scalar(
-        tag='train_loss',
-        value=metrics['train_loss'],
-        step=state_tuple[0].step - 1,
+    summary.scalar(
+        tag="train_loss",
+        value=metrics["train_loss"],
     )
 
     if state_tuple[0].step == 2:
-      logging.info("STEP: %5d; training loss: %.3f", state_tuple[0].step - 1,
-                   metrics["train_loss"])
+      logging.info(
+          "STEP: %5d; training loss: %.3f",
+          state_tuple[0].step - 1,
+          metrics["train_loss"],
+      )
 
     if state_tuple[0].step % config.eval_steps == 0:
-      logging.info("STEP: %5d; training loss: %.3f", state_tuple[0].step - 1,
-                   metrics["train_loss"])
+      logging.info(
+          "STEP: %5d; training loss: %.3f",
+          state_tuple[0].step - 1,
+          metrics["train_loss"],
+      )
+
+    # Write metrics to tensorboard
+    tensorboard.write(summary=summary, step=state_tuple[0].step)
 
     # Save checkpoints
     for state, mngr in zip(state_tuple, orbax_ckpt_mngrs):
       mngr.save(step=int(state.step), items=state)
 
-  logging.info('Final training step: %i', state_tuple[0].step)
+  logging.info("Final training step: %i", state_tuple[0].step)
 
   # Last plot of posteriors
   log_images(
@@ -551,10 +580,14 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
       show_elpd_surface=True,
       true_params=true_params,
-      summary_writer=summary_writer,
+      summary=summary,
       workdir_png=workdir,
   )
   plt.close()
+  # Write metrics to tensorboard
+  tensorboard.write(summary=summary, step=state_tuple[0].step)
+  # Close tensorboard writer
+  tensorboard.close()
 
   return state_tuple
 
