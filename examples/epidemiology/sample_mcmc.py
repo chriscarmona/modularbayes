@@ -119,7 +119,7 @@ def inference_loop_stg2(
     initial_states: HMCState,
     hmc_params: Dict[str, Array],
     logdensity_fn_conditional: Callable,
-    conditioner_logprob: Array,
+    conditioner_logprob: ModelParamsNoCut,
     num_samples_stg1: int,
     num_samples_stg2: int,
     num_chains: int,
@@ -169,19 +169,16 @@ def init_param_fn_stg1(
 ) -> ModelParams:
   """Get dictionary with parametes to initialize MCMC.
 
-    This function produce unbounded values, i.e. before bijectors to map into the
-    domain of the model parameters.
-    """
-
+  This function produce unbounded values, i.e. before bijectors to map into the
+  domain of the model parameters.
+  """
   prng_seq = hk.PRNGSequence(prng_key)
-
   # Dictionary with shapes of model parameters in stage 1
   samples_shapes = {
       "phi": (num_groups,),
       "theta0": (1,),
       "theta1": (1,),
   }
-
   # Get a sample for all parameters
   samples_ = jax.tree_map(
       lambda shape_i: distrax.Normal(0.0, 1.0).sample(
@@ -189,16 +186,17 @@ def init_param_fn_stg1(
       tree=samples_shapes,
       is_leaf=lambda x: isinstance(x, Tuple),
   )
-
   # Define the namedtuple
   model_params_stg1 = ModelParams(**samples_)
-
   return model_params_stg1
 
 
 def transform_model_params(
-    model_params_unb: ModelParams,) -> Tuple[ModelParams, Array]:
+    model_params_unb: ModelParams) -> Tuple[ModelParams, Array]:
   """Apply transformations to map into model parameters domain."""
+
+  phi_dim = model_params_unb.phi.shape[-1]
+  theta_dim = 2
 
   # Transform no-cut parameters
   concat_params_nocut_unb = concat_flow_nocut(
@@ -209,7 +207,7 @@ def transform_model_params(
   concat_params_nocut, log_det_jacob_nocut = bij_nocut.forward_and_log_det(
       concat_params_nocut_unb)
   model_params_nocut = split_flow_nocut(
-      concat_params=concat_params_nocut, phi_dim=model_params_unb.phi.shape[-1])
+      concat_params=concat_params_nocut, phi_dim=phi_dim)
 
   # Transform cut parameters
   concat_params_cut_unb = concat_flow_cut(
@@ -219,7 +217,7 @@ def transform_model_params(
   concat_params_cut, log_det_jacob_cut = bij_cut.forward_and_log_det(
       concat_params_cut_unb)
   model_params_cut = split_flow_cut(
-      concat_params=concat_params_cut, theta_dim=2)
+      concat_params=concat_params_cut, theta_dim=theta_dim)
   # Join model parameters
   model_params = ModelParams(**{
       **model_params_nocut._asdict(),
@@ -273,12 +271,13 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
   samples_path_stg1 = workdir + "mcmc_samples_stg1_unb_az.nc"
   samples_path = workdir + "mcmc_samples_az.nc"
 
+  # Set eta for modules
   # In general, it would be possible to modulate the influence of both modules
   # for now, we only focus on the influence of the cancer module
   smi_eta = SmiEta(cancer=config.smi_eta_cancer)
 
   if os.path.exists(samples_path):
-    logging.info("\t Loading final samples")
+    logging.info("\t Loading final samples from: %s", samples_path)
     az_data = az.from_netcdf(samples_path)
   else:
     times_data = {}
@@ -286,7 +285,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
 
     ### Sample First Stage ###
     if os.path.exists(samples_path_stg1):
-      logging.info("\t Loading samples for stage 1...")
+      logging.info("\t Loading samples for stage 1 from: %s", samples_path_stg1)
       az_data_stg1_unb_az = az.from_netcdf(samples_path_stg1)
     else:
       logging.info("\t Stage 1...")
@@ -358,6 +357,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     ### Sample Second Stage ###
     logging.info("\t Stage 2...")
 
+    # Extract Cut parameters from stage 1 samples
     model_params_condstg2_unb_samples = ModelParamsNoCut(
         **{
             k: jnp.array(az_data_stg1_unb_az.posterior[k])
@@ -462,9 +462,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
           num_samples_stg2=config.num_samples_subchain_stg2,
           num_chains=config.num_chains,
       )
-
       samples_chunks.append(states_stg2_i.position)
-
       # Subsequent chunks initialise in last position of the previous chunk
       initial_position_i = states_stg2_i.position
 
@@ -479,7 +477,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
                                                 model_params_cut_unb_samples)
 
     # Transform unbounded parameters to model parameters
-    model_params_cut_samples, _ = jax.vmap(jax.vmap(transform_model_params))(
+    model_params_stg2_samples, _ = jax.vmap(jax.vmap(transform_model_params))(
         ModelParams(
             **{
                 **model_params_condstg2_unb_samples._asdict(),
@@ -489,7 +487,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     # Create InferenceData object
     az_data = plot.arviz_from_samples(
         dataset=train_ds,
-        model_params=model_params_cut_samples,
+        model_params=model_params_stg2_samples,
     )
     # Save InferenceData object
     az_data.to_netcdf(samples_path)
@@ -533,22 +531,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       workdir_png=workdir,
       summary=summary,
   )
-  # Write metrics to tensorboard
+  # Write to tensorboard
   tensorboard.write(summary=summary, step=0)
-  # Close tensorboard writer
   tensorboard.close()
   logging.info("...done!")
-
-
-# # For debugging
-# config = get_config()
-# eta = 1.000
-# import pathlib
-# workdir = str(pathlib.Path.home() / f'modularbayes-output-exp/epidemiology/mcmc/eta_{eta:.3f}')
-# config.smi_eta_cancer = eta
-# # config.path_variational_samples = str(pathlib.Path.home() / f'modularbayes-output-exp/epidemiology/nsf/vmp-flow/eta_{eta:.3f}/hpv_az.nc')
-# config.num_samples = 100
-# config.num_samples_subchain_stg2 = 10
-# config.num_samples_perchunk_stg2 = 100
-# # config.num_steps_call_warmup = 10
-# # # sample_and_evaluate(config, workdir)

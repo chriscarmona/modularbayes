@@ -19,8 +19,8 @@ def bijector_domain_nocut() -> distrax.Bijector:
   The bijector maps from an unconstrained space to the parameter domain.
   """
   # phi goes to [0,1]
-  bij_nocut = distrax.Block(distrax.Sigmoid(), 1)
-  return bij_nocut
+  bij_domain = distrax.Block(distrax.Sigmoid(), 1)
+  return bij_domain
 
 
 def bijector_domain_cut() -> distrax.Bijector:
@@ -37,9 +37,9 @@ def bijector_domain_cut() -> distrax.Bijector:
       1,
       1,
   ]
-  bij_cut = modularbayes.Blockwise(
+  bij_domain = modularbayes.Blockwise(
       bijectors=block_bijectors, block_sizes=block_sizes)
-  return bij_cut
+  return bij_domain
 
 
 def get_q_nocut_mf(
@@ -60,8 +60,8 @@ def get_q_nocut_mf(
       distrax.Block(distrax.ScalarAffine(shift=loc, log_scale=log_scale), 1))
 
   # Last Layer: Map values to parameter domain
-  bij_nocut = bijector_domain_nocut()
-  flow_layers.append(bij_nocut)
+  bij_domain = bijector_domain_nocut()
+  flow_layers.append(bij_domain)
 
   # Chain all flow layers together
   flow = distrax.Chain(flow_layers[::-1])
@@ -94,8 +94,8 @@ def get_q_cutgivennocut_mf(
   # flow_layers.append(tfb.Shift(loc)(tfb.Scale(log_scale=log_scale)))
 
   # Last layer: Map values to parameter domain
-  bij_cut = bijector_domain_cut()
-  flow_layers.append(bij_cut)
+  bij_domain = bijector_domain_cut()
+  flow_layers.append(bij_domain)
 
   # Chain all flow layers together
   flow = modularbayes.ConditionalChain(flow_layers[::-1])
@@ -179,8 +179,8 @@ def get_q_nocut_nsf(
     mask = jnp.logical_not(mask)
 
   # Last layer: Map values to parameter domain
-  bij_nocut = bijector_domain_nocut()
-  flow_layers.append(bij_nocut)
+  bij_domain = bijector_domain_nocut()
+  flow_layers.append(bij_domain)
 
   # Chain all flow layers together
   if is_meta:
@@ -259,8 +259,8 @@ def get_q_cutgivennocut_nsf(
     mask = jnp.logical_not(mask)
 
   # Last layer: Map values to parameter domain
-  bij_cut = bijector_domain_cut()
-  flow_layers.append(bij_cut)
+  bij_domain = bijector_domain_cut()
+  flow_layers.append(bij_domain)
 
   # Chain all flow layers together
   flow = modularbayes.ConditionalChain(flow_layers[::-1])

@@ -5,7 +5,6 @@ import pathlib
 from absl import logging
 
 import numpy as np
-from matplotlib import pyplot as plt
 
 import jax
 from jax import numpy as jnp
@@ -14,23 +13,6 @@ import optax
 import orbax.checkpoint
 from objax.jaxboard import SummaryWriter, Summary
 
-import flows
-from flows import split_flow_nocut, split_flow_cut
-from log_prob_fun import (
-    ModelParams,
-    ModelParamsCut,
-    SmiEta,
-    logprob_joint,
-    sample_eta_values,
-)
-import plot
-from train_flow import (
-    init_state_tuple,
-    load_data,
-    print_trainable_params,
-    sample_q_as_az,
-)
-from modularbayes import elbo_smi_vmpflow, train_step
 from modularbayes._src.typing import (
     Any,
     Array,
@@ -42,6 +24,24 @@ from modularbayes._src.typing import (
     TrainState,
     Tuple,
 )
+from modularbayes import elbo_smi_vmpflow, train_step
+
+from train_flow import (
+    init_state_tuple,
+    load_data,
+    print_trainable_params,
+    sample_q_as_az,
+)
+import flows
+from flows import split_flow_nocut, split_flow_cut
+from log_prob_fun import (
+    ModelParams,
+    ModelParamsCut,
+    SmiEta,
+    logprob_joint,
+    sample_eta_values,
+)
+import plot
 
 # Set high precision for matrix multiplication in jax
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -239,7 +239,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         },
     )
 
-  if state_tuple[0].step < config.training_steps:
+  if int(state_tuple[0].step) < config.training_steps:
     logging.info("Training Variational Meta-Posterior (VMP-flow)...")
 
   # Reset random key sequence
@@ -247,12 +247,12 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   tensorboard = SummaryWriter(workdir)
 
-  while state_tuple[0].step < config.training_steps:
+  while int(state_tuple[0].step) < config.training_steps:
     summary = Summary()
 
     # Plots to monitor training
-    if (state_tuple[0].step == 0) or (state_tuple[0].step % config.log_img_steps
-                                      == 0):
+    if (config.log_img_steps
+        is not None) and (int(state_tuple[0].step) % config.log_img_steps == 0):
       logging.info("\t\t Logging plots...")
       log_images(
           state_tuple=state_tuple,
@@ -265,14 +265,13 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           summary=summary,
           workdir_png=workdir,
       )
-      plt.close()
       logging.info("\t\t...done logging plots.")
 
     # Log learning rate
     summary.scalar(
         tag="learning_rate",
         value=getattr(optax, config.optim_kwargs.lr_schedule_name)(
-            **config.optim_kwargs.lr_schedule_kwargs)(state_tuple[0].step),
+            **config.optim_kwargs.lr_schedule_kwargs)(int(state_tuple[0].step)),
     )
 
     # SGD step
@@ -284,23 +283,20 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     if jax.lax.is_finite(metrics["train_loss"]):
       state_tuple = state_tuple_
 
-    summary.scalar(
-        tag="train_loss",
-        value=metrics["train_loss"],
-    )
+    summary.scalar(tag="train_loss", value=metrics["train_loss"])
 
-    if state_tuple[0].step == 1:
+    if int(state_tuple[0].step) == 1:
       logging.info(
           "STEP: %5d; training loss: %.3f",
-          state_tuple[0].step,
+          int(state_tuple[0].step),
           metrics["train_loss"],
       )
 
     # Metrics for evaluation
-    if state_tuple[0].step % config.eval_steps == 0:
+    if int(state_tuple[0].step) % config.eval_steps == 0:
       logging.info(
           "STEP: %5d; training loss: %.3f",
-          state_tuple[0].step,
+          int(state_tuple[0].step),
           metrics["train_loss"],
       )
 
@@ -313,12 +309,12 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         summary.scalar(tag=f"elbo_{k}", value=v.mean())
 
     # Write metrics to tensorboard
-    tensorboard.write(summary=summary, step=state_tuple[0].step)
+    tensorboard.write(summary=summary, step=int(state_tuple[0].step))
 
     for state, mngr in zip(state_tuple, orbax_ckpt_mngrs):
       mngr.save(step=int(state.step), items=state)
 
-  logging.info("Final training step: %i", state_tuple[0].step)
+  logging.info("Final training step: %i", int(state_tuple[0].step))
 
   # Last plot of posteriors
   log_images(
@@ -333,15 +329,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       workdir_png=workdir,
   )
   # Write metrics to tensorboard
-  tensorboard.write(summary=summary, step=state_tuple[0].step)
+  tensorboard.write(summary=summary, step=int(state_tuple[0].step))
   # Close tensorboard writer
   tensorboard.close()
 
   return state_tuple
-
-
-# # For debugging
-# config = get_config()
-# import pathlib
-# workdir = str(pathlib.Path.home() / f'modularbayes-output-exp/epidemiology/vmp_nsf')
-# # train_and_evaluate(config, workdir)

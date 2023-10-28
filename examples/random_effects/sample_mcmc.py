@@ -119,7 +119,7 @@ def inference_loop_stg2(
     initial_states: HMCState,
     hmc_params: Dict[str, Array],
     logdensity_fn_conditional: Callable,
-    conditioner_logprob: Array,
+    conditioner_logprob: ModelParamsNoCut,
     num_samples_stg1: int,
     num_samples_stg2: int,
     num_chains: int,
@@ -192,7 +192,7 @@ def init_param_fn_stg1(
 
 
 def transform_model_params(
-    model_params_unb: ModelParams,) -> Tuple[ModelParams, Array]:
+    model_params_unb: ModelParams) -> Tuple[ModelParams, Array]:
   """Apply transformations to map into model parameters domain."""
 
   num_groups = model_params_unb.sigma.shape[-1]
@@ -271,7 +271,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       tau=None,
   )
 
-  # Generate dataset
+  # Load and process data
   train_ds = load_data(
       prng_key=next(prng_seq),
       num_obs_groups=config.num_obs_groups,
@@ -286,7 +286,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
   smi_eta = SmiEta(groups=jnp.array(config.smi_eta_groups))
 
   if os.path.exists(samples_path):
-    logging.info("\t Loading final samples")
+    logging.info("\t Loading final samples from: %s", samples_path)
     az_data = az.from_netcdf(samples_path)
   else:
     times_data = {}
@@ -294,7 +294,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
 
     ### Sample First Stage ###
     if os.path.exists(samples_path_stg1):
-      logging.info("\t Loading samples for stage 1...")
+      logging.info("\t Loading samples for stage 1 from: %s", samples_path_stg1)
       az_data_stg1_unb_az = az.from_netcdf(samples_path_stg1)
     else:
       logging.info("\t Stage 1...")
@@ -365,6 +365,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     ### Sample Second Stage ###
     logging.info("\t Stage 2...")
 
+    # Extract Cut parameters from stage 1 samples
     model_params_condstg2_unb_samples = ModelParamsNoCut(
         **{
             k: jnp.array(az_data_stg1_unb_az.posterior[k])
@@ -469,9 +470,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
           num_samples_stg2=config.num_samples_subchain_stg2,
           num_chains=config.num_chains,
       )
-
       samples_chunks.append(states_stg2_i.position)
-
       # Subsequent chunks initialise in last position of the previous chunk
       initial_position_i = states_stg2_i.position
 
@@ -486,7 +485,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
                                                 model_params_cut_unb_samples)
 
     # Transform unbounded parameters to model parameters
-    model_params_cut_samples, _ = jax.vmap(jax.vmap(transform_model_params))(
+    model_params_stg2_samples, _ = jax.vmap(jax.vmap(transform_model_params))(
         ModelParams(
             **{
                 **model_params_condstg2_unb_samples._asdict(),
@@ -496,7 +495,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     # Create InferenceData object
     az_data = plot.arviz_from_samples(
         dataset=train_ds,
-        model_params=model_params_cut_samples,
+        model_params=model_params_stg2_samples,
     )
     # Save InferenceData object
     az_data.to_netcdf(samples_path)
@@ -540,18 +539,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       workdir_png=workdir,
       summary=summary,
   )
-  # Write metrics to tensorboard
+  # Write to tensorboard
   tensorboard.write(summary=summary, step=0)
   tensorboard.close()
   logging.info("...done!")
-
-
-# # For debugging
-# config = get_config()
-# import pathlib
-# workdir = str(pathlib.Path.home() / f'modularbayes-output-exp/random_effects/mcmc/full')
-# config.num_samples = 100
-# config.num_samples_subchain_stg2 = 10
-# config.num_samples_perchunk_stg2 = 100
-# # config.num_steps_call_warmup = 10
-# # # sample_and_evaluate(config, workdir)

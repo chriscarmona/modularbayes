@@ -5,7 +5,6 @@ import pathlib
 from absl import logging
 
 import numpy as np
-from matplotlib import pyplot as plt
 
 from arviz import InferenceData
 
@@ -17,18 +16,6 @@ import distrax
 import orbax.checkpoint
 from objax.jaxboard import SummaryWriter, Summary
 
-import flows
-from flows import split_flow_nocut, split_flow_cut
-from log_prob_fun import ModelParams, ModelParamsCut, SmiEta, logprob_joint
-import plot
-
-from modularbayes import (
-    elbo_smi,
-    sample_q_nocut,
-    sample_q_cutgivennocut,
-    sample_q,
-    train_step,
-)
 from modularbayes._src.typing import (
     Any,
     Array,
@@ -41,6 +28,18 @@ from modularbayes._src.typing import (
     TrainState,
     Tuple,
 )
+from modularbayes import (
+    elbo_smi,
+    sample_q_nocut,
+    sample_q_cutgivennocut,
+    sample_q,
+    train_step,
+)
+
+import flows
+from flows import split_flow_nocut, split_flow_cut
+from log_prob_fun import ModelParams, ModelParamsCut, SmiEta, logprob_joint
+import plot
 
 # Set high precision for matrix multiplication in jax
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -223,7 +222,7 @@ def make_optimizer(
     lr_schedule_kwargs,
     grad_clip_value,
 ) -> optax.GradientTransformation:
-  """Define optimizer to train the Flow."""
+  """Define optimizer."""
   schedule = getattr(optax, lr_schedule_name)(**lr_schedule_kwargs)
 
   optimizer = optax.chain(*[
@@ -255,7 +254,7 @@ def sample_q_as_az(
     sample_shape: Optional[Tuple[int]],
     eta_values: Optional[Array] = None,
 ) -> InferenceData:
-  """Plots to monitor during training."""
+  """Sample Model parameters in Arviz format."""
   if eta_values is not None:
     assert eta_values.ndim == 2
     assert (eta_values.shape[0],) == sample_shape
@@ -478,7 +477,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         smi_eta=smi_eta,
     )
 
-  if state_tuple[0].step < config.training_steps:
+  if int(state_tuple[0].step) < config.training_steps:
     logging.info("Training variational posterior...")
 
   # Reset random key sequence
@@ -486,12 +485,12 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   tensorboard = SummaryWriter(workdir)
 
-  while state_tuple[0].step < config.training_steps:
+  while int(state_tuple[0].step) < config.training_steps:
     summary = Summary()
 
     # Plots to monitor training
-    if (state_tuple[0].step == 0) or (state_tuple[0].step % config.log_img_steps
-                                      == 0):
+    if (config.log_img_steps
+        is not None) and (int(state_tuple[0].step) % config.log_img_steps == 0):
       logging.info("\t\t Logging plots...")
       az_data = sample_q_as_az(
           lambda_tuple=tuple(x.params for x in state_tuple),
@@ -513,14 +512,13 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           workdir_png=workdir,
           summary=summary,
       )
-      plt.close()
       logging.info("\t\t...done logging plots.")
 
     # Log learning rate
     summary.scalar(
         tag="learning_rate",
         value=getattr(optax, config.optim_kwargs.lr_schedule_name)(
-            **config.optim_kwargs.lr_schedule_kwargs)(state_tuple[0].step),
+            **config.optim_kwargs.lr_schedule_kwargs)(int(state_tuple[0].step)),
     )
 
     # SGD step
@@ -537,18 +535,18 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         value=metrics["train_loss"],
     )
 
-    if state_tuple[0].step == 1:
+    if int(state_tuple[0].step) == 1:
       logging.info(
           "STEP: %5d; training loss: %.3f",
-          state_tuple[0].step,
+          int(state_tuple[0].step),
           metrics["train_loss"],
       )
 
     # Metrics for evaluation
-    if state_tuple[0].step % config.eval_steps == 0:
+    if int(state_tuple[0].step) % config.eval_steps == 0:
       logging.info(
           "STEP: %5d; training loss: %.3f",
-          state_tuple[0].step,
+          int(state_tuple[0].step),
           metrics["train_loss"],
       )
 
@@ -565,7 +563,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         )
 
     # Write metrics to tensorboard
-    tensorboard.write(summary=summary, step=state_tuple[0].step)
+    tensorboard.write(summary=summary, step=int(state_tuple[0].step))
 
     # Save checkpoints
     for state, mngr in zip(state_tuple, orbax_ckpt_mngrs):
@@ -574,7 +572,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     # Wait until computations are done before the next step
     # jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
 
-  logging.info("Final training step: %i", state_tuple[0].step)
+  logging.info("Final training step: %i", int(state_tuple[0].step))
 
   # Last plot of posteriors
   az_data = sample_q_as_az(
@@ -603,10 +601,3 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   tensorboard.close()
 
   return state_tuple
-
-
-# # For debugging
-# config = get_config()
-# import pathlib
-# workdir = str(pathlib.Path.home() / f'modularbayes-output-exp/random_effects/nsf/full')
-# # train_and_evaluate(config, workdir)

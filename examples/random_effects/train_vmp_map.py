@@ -62,7 +62,7 @@ def make_optimizer(
     lr_schedule_kwargs,
     grad_clip_value,
 ) -> optax.GradientTransformation:
-  """Define optimizer to train the VHP map."""
+  """Define optimizer."""
   schedule = getattr(optax, lr_schedule_name)(**lr_schedule_kwargs)
 
   optimizer = optax.chain(*[
@@ -492,7 +492,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         },
     )
 
-  if state_tuple[0].step < config.training_steps:
+  if int(state_tuple[0].step) < config.training_steps:
     logging.info("Training Variational Meta-Posterior (VMP-map)...")
 
   # Reset random key sequence
@@ -500,11 +500,11 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   tensorboard = SummaryWriter(workdir)
 
-  while state_tuple[0].step < config.training_steps:
+  while int(state_tuple[0].step) < config.training_steps:
     summary = Summary()
     # Plots to monitor training
     if (config.log_img_steps
-        is not None) and (state_tuple[0].step % config.log_img_steps == 0):
+        is not None) and (int(state_tuple[0].step) % config.log_img_steps == 0):
       logging.info("\t\t Logging plots...")
       log_images(
           state_tuple=state_tuple,
@@ -520,14 +520,13 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           summary=summary,
           workdir_png=workdir,
       )
-      plt.close()
       logging.info("\t\t...done logging plots.")
 
     # Log learning rate
     summary.scalar(
         tag="learning_rate",
         value=getattr(optax, config.optim_kwargs.lr_schedule_name)(
-            **config.optim_kwargs.lr_schedule_kwargs)(state_tuple[0].step),
+            **config.optim_kwargs.lr_schedule_kwargs)(int(state_tuple[0].step)),
     )
 
     # SGD step
@@ -545,28 +544,28 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         value=metrics["train_loss"],
     )
 
-    if state_tuple[0].step == 2:
+    if int(state_tuple[0].step) == 2:
       logging.info(
           "STEP: %5d; training loss: %.3f",
-          state_tuple[0].step - 1,
+          int(state_tuple[0].step) - 1,
           metrics["train_loss"],
       )
 
-    if state_tuple[0].step % config.eval_steps == 0:
+    if int(state_tuple[0].step) % config.eval_steps == 0:
       logging.info(
           "STEP: %5d; training loss: %.3f",
-          state_tuple[0].step - 1,
+          int(state_tuple[0].step) - 1,
           metrics["train_loss"],
       )
 
     # Write metrics to tensorboard
-    tensorboard.write(summary=summary, step=state_tuple[0].step)
+    tensorboard.write(summary=summary, step=int(state_tuple[0].step))
 
     # Save checkpoints
     for state, mngr in zip(state_tuple, orbax_ckpt_mngrs):
       mngr.save(step=int(state.step), items=state)
 
-  logging.info("Final training step: %i", state_tuple[0].step)
+  logging.info("Final training step: %i", int(state_tuple[0].step))
 
   # Last plot of posteriors
   log_images(
@@ -583,17 +582,9 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       summary=summary,
       workdir_png=workdir,
   )
-  plt.close()
   # Write metrics to tensorboard
-  tensorboard.write(summary=summary, step=state_tuple[0].step)
+  tensorboard.write(summary=summary, step=int(state_tuple[0].step))
   # Close tensorboard writer
   tensorboard.close()
 
   return state_tuple
-
-
-# # For debugging
-# config = get_config()
-# import pathlib
-# workdir = str(pathlib.Path.home() / f'modularbayes-output-exp/random_effects/nsf/vmp_map')
-# # train_and_evaluate(config, workdir)

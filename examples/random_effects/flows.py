@@ -19,8 +19,8 @@ def bijector_domain_nocut() -> distrax.Bijector:
   The bijector maps from an unconstrained space to the parameter domain.
   """
   # sigma goes to [0,Inf]
-  bij_nocut = distrax.Block(tfb.Softplus(), 1)
-  return bij_nocut
+  bij_domain = distrax.Block(tfb.Softplus(), 1)
+  return bij_domain
 
 
 def bijector_domain_cut(num_groups: int) -> distrax.Bijector:
@@ -32,9 +32,9 @@ def bijector_domain_cut(num_groups: int) -> distrax.Bijector:
       distrax.Block(tfb.Softplus(), 1),
   ]
   block_sizes = [num_groups, 1]
-  bij_cut = modularbayes.Blockwise(
+  bij_domain = modularbayes.Blockwise(
       bijectors=block_bijectors, block_sizes=block_sizes)
-  return bij_cut
+  return bij_domain
 
 
 def get_q_nocut_nsf(
@@ -107,8 +107,8 @@ def get_q_nocut_nsf(
     mask = jnp.logical_not(mask)
 
   # Last layer: Map values to parameter domain
-  bij_nocut = bijector_domain_nocut()
-  flow_layers.append(bij_nocut)
+  bij_domain = bijector_domain_nocut()
+  flow_layers.append(bij_domain)
 
   # Chain all flow layers together
   if is_meta:
@@ -187,8 +187,8 @@ def get_q_cutgivennocut_nsf(
     mask = jnp.logical_not(mask)
 
   # Last layer: Map values to parameter domain
-  bij_cut = bijector_domain_cut(num_groups=num_groups)
-  flow_layers.append(bij_cut)
+  bij_domain = bijector_domain_cut(num_groups=num_groups)
+  flow_layers.append(bij_domain)
 
   # Chain all flow layers together
   flow = modularbayes.ConditionalChain(flow_layers[::-1])

@@ -1,6 +1,6 @@
 arviz
 blackjax
-distrax
 pandas
 objax
 orbax-checkpoint==0.3.5
+modularbayes
