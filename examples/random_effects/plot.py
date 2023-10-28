@@ -56,9 +56,9 @@ def arviz_from_samples(
 
 def posterior_plots(
     az_data: InferenceData,
-    show_sigma_trace: bool,
-    show_beta_trace: bool,
-    show_tau_trace: bool,
+    show_sigma_trace: bool = False,
+    show_beta_trace: bool = False,
+    show_tau_trace: bool = False,
     betasigma_pairplot_groups: Optional[Tuple[int]] = None,
     tausigma_pairplot_groups: Optional[Tuple[int]] = None,
     suffix: str = "",

@@ -115,11 +115,6 @@ def get_q_nocut_nsf(
     flow = modularbayes.ConditionalChain(flow_layers[::-1])
   else:
     flow = distrax.Chain(flow_layers[::-1])
-
-  # base_distribution = distrax.Independent(
-  #     distrax.Uniform(low=jnp.zeros(event_shape), high=jnp.ones(event_shape)),
-  #     reinterpreted_batch_ndims=len(event_shape))
-
   base_distribution = distrax.MultivariateNormalDiag(
       loc=jnp.zeros(event_shape), scale_diag=jnp.ones(event_shape))
   if is_meta:

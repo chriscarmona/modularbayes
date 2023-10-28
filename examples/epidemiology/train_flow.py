@@ -277,6 +277,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   # Add trailing slash
   workdir = workdir.rstrip("/") + "/"
+  pathlib.Path(workdir).mkdir(parents=True, exist_ok=True)
 
   # Initialize random keys
   prng_seq = hk.PRNGSequence(config.seed)

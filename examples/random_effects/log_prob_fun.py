@@ -95,9 +95,9 @@ def logprob_joint(
 def sample_eta_values(
     prng_key: PRNGKey,
     num_samples: int,
-    num_groups: int,
     eta_sampling_a: float,
     eta_sampling_b: float,
+    num_groups: int,
 ) -> SmiEta:
   """Generate a sample of the smi_eta values applicable to the model."""
   smi_etas = jax.random.beta(

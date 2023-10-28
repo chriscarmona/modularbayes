@@ -15,26 +15,6 @@ import optax
 import orbax.checkpoint
 from objax.jaxboard import SummaryWriter, Summary
 
-import flows
-from flows import split_flow_nocut, split_flow_cut
-from log_prob_fun import (
-    ModelParams,
-    ModelParamsCut,
-    SmiEta,
-    logprob_joint,
-    sample_eta_values,
-)
-import plot
-from train_flow import (
-    elpd_truth_mc,
-    elpd_waic,
-    init_state_tuple,
-    load_data,
-    print_trainable_params,
-    sample_q_as_az,
-)
-from modularbayes import elbo_smi_vmpflow, sample_q, train_step
-from modularbayes import img_stack_to_grid, plot_to_image, stack_images
 from modularbayes._src.typing import (
     Any,
     Array,
@@ -47,6 +27,33 @@ from modularbayes._src.typing import (
     TrainState,
     Tuple,
 )
+from modularbayes import (
+    elbo_smi_vmpflow,
+    img_stack_to_grid,
+    plot_to_image,
+    sample_q,
+    train_step,
+    stack_images,
+)
+
+from train_flow import (
+    elpd_truth_mc,
+    elpd_waic,
+    init_state_tuple,
+    load_data,
+    print_trainable_params,
+    sample_q_as_az,
+)
+import flows
+from flows import split_flow_nocut, split_flow_cut
+from log_prob_fun import (
+    ModelParams,
+    ModelParamsCut,
+    SmiEta,
+    logprob_joint,
+    sample_eta_values,
+)
+import plot
 
 # Set high precision for matrix multiplication in jax
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -204,7 +211,7 @@ def log_images(
         flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
         flow_kwargs=config.flow_kwargs,
         sample_shape=(num_samples_plot,),
-        eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
+        eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.concatenate(
             smi_etas, axis=-1)),
     )
     plot.posterior_plots(
@@ -305,6 +312,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   # Add trailing slash
   workdir = workdir.rstrip("/") + "/"
+  pathlib.Path(workdir).mkdir(parents=True, exist_ok=True)
 
   # Initialize random keys
   prng_seq = hk.PRNGSequence(config.seed)
@@ -397,9 +405,9 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
             "split_flow_fn_cut": split_flow_cut,
             "sample_eta_fn": sample_eta_values,
             "sample_eta_kwargs": {
-                "num_groups": config.num_groups,
                 "eta_sampling_a": 1.0,
                 "eta_sampling_b": 1.0,
+                "num_groups": config.num_groups,
             },
         },
     )
@@ -474,10 +482,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     if jax.lax.is_finite(metrics["train_loss"]):
       state_tuple = state_tuple_
 
-    summary.scalar(
-        tag="train_loss",
-        value=metrics["train_loss"],
-    )
+    summary.scalar(tag="train_loss", value=metrics["train_loss"])
 
     if int(state_tuple[0].step) == 1:
       logging.info(
@@ -500,10 +505,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           prng_key=next(prng_seq),
       )
       for k, v in elbo_dict.items():
-        summary.scalar(
-            tag=f"elbo_{k}",
-            value=v.mean(),
-        )
+        summary.scalar(tag=f"elbo_{k}", value=v.mean())
     # Write metrics to tensorboard
     tensorboard.write(summary=summary, step=int(state_tuple[0].step))
 

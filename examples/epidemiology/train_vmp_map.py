@@ -128,10 +128,10 @@ def log_images(
 
   # We can obtain the variational parameters for all eta values at once
   smi_etas = SmiEta(
-      hpv=jnp.ones(len(config.smi_eta_cancer_plot)),
-      cancer=jnp.array(config.smi_eta_cancer_plot),
+      hpv=jnp.ones((len(config.smi_eta_cancer_plot), 1)),
+      cancer=jnp.array(config.smi_eta_cancer_plot).reshape(-1, 1),
   )
-  eta_values = smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
+  eta_values = smi_etas[0] if len(smi_etas) == 1 else jnp.concatenate(
       smi_etas, axis=-1)
   # Produce flow parameters as a function of eta
   lambda_tuple = [
@@ -201,6 +201,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   # Add trailing slash
   workdir = workdir.rstrip("/") + "/"
+  pathlib.Path(workdir).mkdir(parents=True, exist_ok=True)
 
   # Initialize random keys
   prng_seq = hk.PRNGSequence(config.seed)

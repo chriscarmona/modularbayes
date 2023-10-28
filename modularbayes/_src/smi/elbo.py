@@ -121,7 +121,7 @@ def elbo_smi_vmpflow(
       split_flow_fn_nocut=split_flow_fn_nocut,
       split_flow_fn_cut=split_flow_fn_cut,
       sample_shape=(num_samples,),
-      eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
+      eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.concatenate(
           smi_etas, axis=-1)),
   )
 
@@ -189,7 +189,7 @@ def elbo_smi_vmpmap(
   lambda_tuple = [
       vmpmap_fn.apply(
           alpha_i,
-          eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
+          eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.concatenate(
               smi_etas, axis=-1)),
           lambda_init=lambda_init_i,
       ) for alpha_i, lambda_init_i in zip(alpha_tuple, lambda_init_tuple)

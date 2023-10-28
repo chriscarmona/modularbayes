@@ -237,21 +237,13 @@ def logprob_joint_unb(
     smi_eta: Optional[SmiEta] = None,
 ):
   """Joint log probability of the model taking unbounded input parameters."""
-
   (model_params, log_det_jacob) = transform_model_params(model_params_unb)
-
-  # Average joint logprob across samples of gamma_profiles
   log_prob = log_prob_fun.logprob_joint(
       batch=batch,
       model_params=model_params,
       prior_hparams=prior_hparams,
       smi_eta=smi_eta,
   )
-
-  # globals().update(dict(prior_hparams))
-  # model_params_gamma_profiles = jax.tree_map(lambda x: x[0], model_params_gamma_profiles_sample)
-  # gamma_profiles_logprob = jax.tree_map(lambda x: x[0], gamma_profiles_logprob_sample)
-
   return log_prob + log_det_jacob
 
 
@@ -276,6 +268,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
   # for now, we only focus on the influence of the cancer module
   smi_eta = SmiEta(cancer=config.smi_eta_cancer)
 
+  tensorboard = SummaryWriter(workdir)
   if os.path.exists(samples_path):
     logging.info("\t Loading final samples from: %s", samples_path)
     az_data = az.from_netcdf(samples_path)
@@ -349,10 +342,24 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       logging.info("\t\t Posterior means no-cut parameters (before transform):")
       for k in az_data_stg1_unb_az.posterior:
         logging.info(
-            "\t\t %s: %s", k,
+            "\t\t %s: \n %s \n", k,
             str(jnp.array(az_data_stg1_unb_az.posterior[k]).mean(axis=[0, 1])))
 
       times_data["end_mcmc_stg_1"] = time.perf_counter()
+
+    summary = Summary()
+    logging.info("Plotting stage 1 samples...")
+    plot.posterior_plots(
+        az_data=az_data_stg1_unb_az,
+        show_phi_trace=True,
+        eta=config.smi_eta_cancer,
+        suffix=f"_eta_cancer_{float(config.smi_eta_cancer):.3f}",
+        workdir_png=workdir,
+        summary=summary,
+    )
+    # Write to tensorboard
+    tensorboard.write(summary=summary, step=1)
+    logging.info("...done!")
 
     ### Sample Second Stage ###
     logging.info("\t Stage 2...")
@@ -492,11 +499,10 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
     # Save InferenceData object
     az_data.to_netcdf(samples_path)
 
-    for param_name_ in ModelParams._fields:
-      logging.info(
-          f"\t\t Posterior means {param_name_}: %s",
-          str(jnp.array(az_data.posterior[param_name_]).mean(axis=[0, 1])),
-      )
+    logging.info("\t\t Posterior means:")
+    for k in az_data.posterior:
+      logging.info("\t\t %s: \n %s \n", k,
+                   str(jnp.array(az_data.posterior[k]).mean(axis=[0, 1])))
 
     times_data["end_sampling"] = time.perf_counter()
 
@@ -516,9 +522,7 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
           str(times_data["end_mcmc_stg_2"] - times_data["start_mcmc_stg_2"]),
       )
 
-  tensorboard = SummaryWriter(workdir)
   summary = Summary()
-
   logging.info("Plotting results...")
   plot.posterior_plots(
       az_data=az_data,
@@ -532,6 +536,6 @@ def sample_and_evaluate(config: ConfigDict, workdir: str) -> Mapping[str, Any]:
       summary=summary,
   )
   # Write to tensorboard
-  tensorboard.write(summary=summary, step=0)
+  tensorboard.write(summary=summary, step=2)
   tensorboard.close()
   logging.info("...done!")

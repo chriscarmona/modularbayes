@@ -84,8 +84,8 @@ def log_images(
   for eta_cancer_i in config.smi_eta_cancer_plot:
     # Define eta with a single value
     smi_etas = SmiEta(
-        hpv=jnp.ones(num_samples_plot),
-        cancer=eta_cancer_i * jnp.ones(num_samples_plot),
+        hpv=jnp.ones((num_samples_plot, 1)),
+        cancer=eta_cancer_i * jnp.ones((num_samples_plot, 1)),
     )
     # Sample from flow
     az_data = sample_q_as_az(
@@ -96,7 +96,7 @@ def log_images(
         flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
         flow_kwargs=config.flow_kwargs,
         sample_shape=(num_samples_plot,),
-        eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
+        eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.concatenate(
             smi_etas, axis=-1)),
     )
     plot.posterior_plots(
@@ -115,16 +115,17 @@ def log_images(
 def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   """Model training and evaluation.
 
-    Args:
-      config: Hyperparameter configuration for training and evaluation.
-      workdir: Directory where the tensorboard summaries are written to.
+  Args:
+    config: Hyperparameter configuration for training and evaluation.
+    workdir: Directory where the tensorboard summaries are written to.
 
-    Returns:
-      Final TrainState.
-    """
+  Returns:
+    Final TrainState.
+  """
 
   # Add trailing slash
   workdir = workdir.rstrip("/") + "/"
+  pathlib.Path(workdir).mkdir(parents=True, exist_ok=True)
 
   # Initialize random keys
   prng_seq = hk.PRNGSequence(config.seed)

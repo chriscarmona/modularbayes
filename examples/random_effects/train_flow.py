@@ -258,7 +258,6 @@ def sample_q_as_az(
   if eta_values is not None:
     assert eta_values.ndim == 2
     assert (eta_values.shape[0],) == sample_shape
-
   # Sample from flow
   q_distr_out = sample_q(
       lambda_tuple=lambda_tuple,
@@ -361,6 +360,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   # Add trailing slash
   workdir = workdir.rstrip("/") + "/"
+  pathlib.Path(workdir).mkdir(parents=True, exist_ok=True)
 
   # Initialize random keys
   prng_seq = hk.PRNGSequence(config.seed)
@@ -530,10 +530,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
     if jax.lax.is_finite(metrics["train_loss"]):
       state_tuple = state_tuple_
 
-    summary.scalar(
-        tag="train_loss",
-        value=metrics["train_loss"],
-    )
+    summary.scalar(tag="train_loss", value=metrics["train_loss"])
 
     if int(state_tuple[0].step) == 1:
       logging.info(
@@ -557,10 +554,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           smi_eta=smi_eta,
       )
       for k, v in elbo_dict.items():
-        summary.scalar(
-            tag=f"elbo_{k}",
-            value=v.mean(),
-        )
+        summary.scalar(tag=f"elbo_{k}", value=v.mean())
 
     # Write metrics to tensorboard
     tensorboard.write(summary=summary, step=int(state_tuple[0].step))

@@ -63,10 +63,10 @@ def arviz_from_samples(
 
 def posterior_plots(
     az_data: InferenceData,
-    show_phi_trace: bool,
-    show_theta_trace: bool,
-    show_loglinear_scatter: bool,
-    show_theta_pairplot: bool,
+    show_phi_trace: bool = False,
+    show_theta_trace: bool = False,
+    show_loglinear_scatter: bool = False,
+    show_theta_pairplot: bool = False,
     eta: Optional[float] = None,
     suffix: str = "",
     workdir_png: Optional[str] = None,
@@ -205,12 +205,12 @@ def plot_vmp_map(
 
   eta_cancer_grid = jnp.linspace(0, 1, 51).round(2)
   smi_etas = SmiEta(
-      hpv=jnp.ones(len(eta_cancer_grid)),
-      cancer=jnp.array(eta_cancer_grid),
+      hpv=jnp.ones((len(eta_cancer_grid), 1)),
+      cancer=jnp.array(eta_cancer_grid).reshape(-1, 1),
   )
   lambda_grid = vmpmap_fn.apply(
       alpha,
-      eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
+      eta_values=(smi_etas[0] if len(smi_etas) == 1 else jnp.concatenate(
           smi_etas, axis=-1)),
       lambda_init=lambda_init,
   )

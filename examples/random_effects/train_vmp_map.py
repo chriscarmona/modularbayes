@@ -245,7 +245,7 @@ def log_images(
 
   # We can obtain the variational parameters for all eta values at once
   smi_etas = SmiEta(groups=jnp.array(config.smi_eta_plot.values()))
-  eta_values = smi_etas[0] if len(smi_etas) == 1 else jnp.stack(
+  eta_values = smi_etas[0] if len(smi_etas) == 1 else jnp.concatenate(
       smi_etas, axis=-1)
   # Produce flow parameters as a function of eta
   lambda_tuple = [
@@ -367,6 +367,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   # Add trailing slash
   workdir = workdir.rstrip("/") + "/"
+  pathlib.Path(workdir).mkdir(parents=True, exist_ok=True)
 
   # Initialize random keys
   prng_seq = hk.PRNGSequence(config.seed)
@@ -474,9 +475,9 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
             "lambda_init_tuple": lambda_init_tuple,
             "sample_eta_fn": sample_eta_values,
             "sample_eta_kwargs": {
-                "num_groups": config.num_groups,
                 "eta_sampling_a": config.eta_sampling_a,
                 "eta_sampling_b": config.eta_sampling_b,
+                "num_groups": config.num_groups,
             },
             "elbo_smi_kwargs": {
                 "logprob_joint_fn": logprob_joint,
