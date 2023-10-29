@@ -399,7 +399,49 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   while int(state_tuple[0].step) < config.training_steps:
     summary = Summary()
 
-    # Plots to monitor training
+    # SGD step
+    state_tuple_, metrics = train_step_jit(
+        state_tuple=state_tuple,
+        batch=train_ds,
+        prng_key=next(prng_seq),
+    )
+    if jax.lax.is_finite(metrics["train_loss"]):
+      state_tuple = state_tuple_
+
+    summary.scalar(tag="train_loss", value=metrics["train_loss"])
+
+    if int(state_tuple[0].step) == 1:
+      logging.info(
+          "STEP: %5d; training loss: %.3f",
+          int(state_tuple[0].step),
+          metrics["train_loss"],
+      )
+
+    # Log learning rate
+    summary.scalar(
+        tag="learning_rate",
+        value=getattr(optax, config.optim_kwargs.lr_schedule_name)(
+            **config.optim_kwargs.lr_schedule_kwargs)(int(state_tuple[0].step)),
+    )
+
+    # Metrics for evaluation
+    if int(state_tuple[0].step) % config.eval_steps == 0:
+      logging.info(
+          "STEP: %5d; training loss: %.3f",
+          int(state_tuple[0].step),
+          metrics["train_loss"],
+      )
+
+      elbo_dict = elbo_validation_jit(
+          state_tuple=state_tuple,
+          batch=train_ds,
+          prng_key=next(prng_seq),
+          smi_eta=smi_eta,
+      )
+      for k, v in elbo_dict.items():
+        summary.scalar(tag=f"elbo_{k}", value=v.mean())
+
+    # Plots to monitor during training
     if (config.log_img_steps
         is not None) and (int(state_tuple[0].step) % config.log_img_steps == 0):
       logging.info("\t\t Logging plots...")
@@ -425,49 +467,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       )
       logging.info("\t\t...done logging plots.")
 
-    # Log learning rate
-    summary.scalar(
-        tag="learning_rate",
-        value=getattr(optax, config.optim_kwargs.lr_schedule_name)(
-            **config.optim_kwargs.lr_schedule_kwargs)(int(state_tuple[0].step)),
-    )
-
-    # SGD step
-    state_tuple_, metrics = train_step_jit(
-        state_tuple=state_tuple,
-        batch=train_ds,
-        prng_key=next(prng_seq),
-    )
-    if jax.lax.is_finite(metrics["train_loss"]):
-      state_tuple = state_tuple_
-
-    summary.scalar(tag="train_loss", value=metrics["train_loss"])
-
-    if int(state_tuple[0].step) == 1:
-      logging.info(
-          "STEP: %5d; training loss: %.3f",
-          int(state_tuple[0].step),
-          metrics["train_loss"],
-      )
-
-    # Metrics for evaluation
-    if int(state_tuple[0].step) % config.eval_steps == 0:
-      logging.info(
-          "STEP: %5d; training loss: %.3f",
-          int(state_tuple[0].step),
-          metrics["train_loss"],
-      )
-
-      elbo_dict = elbo_validation_jit(
-          state_tuple=state_tuple,
-          batch=train_ds,
-          prng_key=next(prng_seq),
-          smi_eta=smi_eta,
-      )
-      for k, v in elbo_dict.items():
-        summary.scalar(tag=f"elbo_{k}", value=v.mean())
-
-    # Write metrics to tensorboard
+    # Write summary to tensorboard
     tensorboard.write(summary=summary, step=int(state_tuple[0].step))
 
     # Save checkpoints
@@ -477,6 +477,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   logging.info("Final training step: %i", int(state_tuple[0].step))
 
   # Last plot of posteriors
+  summary = Summary()
   az_data = sample_q_as_az(
       lambda_tuple=tuple(x.params for x in state_tuple),
       dataset=train_ds,

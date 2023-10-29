@@ -293,10 +293,7 @@ def log_images(
           nrow=len(images),
           byrow=True,
       )
-      summary.image(
-          tag=plot_name,
-          image=image,
-      )
+      summary.image(tag=plot_name, image=image)
 
 
 def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
@@ -405,8 +402,8 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
             "split_flow_fn_cut": split_flow_cut,
             "sample_eta_fn": sample_eta_values,
             "sample_eta_kwargs": {
-                "eta_sampling_a": 1.0,
-                "eta_sampling_b": 1.0,
+                "eta_sampling_a": config.eta_sampling_a,
+                "eta_sampling_b": config.eta_sampling_b,
                 "num_groups": config.num_groups,
             },
         },
@@ -430,9 +427,9 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
         split_flow_fn_cut=split_flow_cut,
         sample_eta_fn=sample_eta_values,
         sample_eta_kwargs={
-            "num_groups": config.num_groups,
             "eta_sampling_a": 1.0,
             "eta_sampling_b": 1.0,
+            "num_groups": config.num_groups,
         },
     )
 
@@ -446,6 +443,47 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
 
   while int(state_tuple[0].step) < config.training_steps:
     summary = Summary()
+
+    # SGD step
+    state_tuple_, metrics = train_step_jit(
+        state_tuple=state_tuple,
+        batch=train_ds,
+        prng_key=next(prng_seq),
+    )
+    if jax.lax.is_finite(metrics["train_loss"]):
+      state_tuple = state_tuple_
+
+    summary.scalar(tag="train_loss", value=metrics["train_loss"])
+
+    if int(state_tuple[0].step) == 1:
+      logging.info(
+          "STEP: %5d; training loss: %.3f",
+          int(state_tuple[0].step),
+          metrics["train_loss"],
+      )
+
+    # Log learning rate
+    summary.scalar(
+        tag="learning_rate",
+        value=getattr(optax, config.optim_kwargs.lr_schedule_name)(
+            **config.optim_kwargs.lr_schedule_kwargs)(int(state_tuple[0].step)),
+    )
+
+    # Metrics for evaluation
+    if int(state_tuple[0].step) % config.eval_steps == 0:
+      logging.info(
+          "STEP: %5d; training loss: %.3f",
+          int(state_tuple[0].step),
+          metrics["train_loss"],
+      )
+
+      elbo_dict = elbo_validation_jit(
+          state_list=state_tuple,
+          batch=train_ds,
+          prng_key=next(prng_seq),
+      )
+      for k, v in elbo_dict.items():
+        summary.scalar(tag=f"elbo_{k}", value=v.mean())
 
     # Plots to monitor training
     if (config.log_img_steps
@@ -466,47 +504,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       )
       logging.info("\t\t...done logging plots.")
 
-    # Log learning rate
-    summary.scalar(
-        tag="learning_rate",
-        value=getattr(optax, config.optim_kwargs.lr_schedule_name)(
-            **config.optim_kwargs.lr_schedule_kwargs)(int(state_tuple[0].step)),
-    )
-
-    # SGD step
-    state_tuple_, metrics = train_step_jit(
-        state_tuple=state_tuple,
-        batch=train_ds,
-        prng_key=next(prng_seq),
-    )
-    if jax.lax.is_finite(metrics["train_loss"]):
-      state_tuple = state_tuple_
-
-    summary.scalar(tag="train_loss", value=metrics["train_loss"])
-
-    if int(state_tuple[0].step) == 1:
-      logging.info(
-          "STEP: %5d; training loss: %.3f",
-          int(state_tuple[0].step),
-          metrics["train_loss"],
-      )
-
-    # Metrics for evaluation
-    if int(state_tuple[0].step) % config.eval_steps == 0:
-      logging.info(
-          "STEP: %5d; training loss: %.3f",
-          int(state_tuple[0].step),
-          metrics["train_loss"],
-      )
-
-      elbo_dict = elbo_validation_jit(
-          state_list=state_tuple,
-          batch=train_ds,
-          prng_key=next(prng_seq),
-      )
-      for k, v in elbo_dict.items():
-        summary.scalar(tag=f"elbo_{k}", value=v.mean())
-    # Write metrics to tensorboard
+    # Write summary to tensorboard
     tensorboard.write(summary=summary, step=int(state_tuple[0].step))
 
     # Save checkpoints
@@ -516,6 +514,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   logging.info("Final training step: %i", int(state_tuple[0].step))
 
   # Last plot of posteriors
+  summary = Summary()
   log_images(
       state_list=state_tuple,
       prng_key=next(prng_seq),

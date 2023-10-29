@@ -93,10 +93,7 @@ def posterior_plots(
     if summary is not None:
       plot_name = f"{model_name}_{param_name_}_trace"
       plot_name += suffix
-      summary.image(
-          tag=plot_name,
-          image=image,
-      )
+      summary.image(tag=plot_name, image=image)
 
   if show_theta_trace:
     axs = az.plot_trace(
@@ -114,10 +111,7 @@ def posterior_plots(
     if summary is not None:
       plot_name = f"{model_name}_theta_trace"
       plot_name += suffix
-      summary.image(
-          tag=plot_name,
-          image=image,
-      )
+      summary.image(tag=plot_name, image=image)
 
   if show_theta_pairplot:
     colour = colour_fader("black", "gold", (eta if eta is not None else 1.0))
@@ -149,10 +143,7 @@ def posterior_plots(
     if summary is not None:
       plot_name = f"{model_name}_theta_pairplot"
       plot_name += suffix
-      summary.image(
-          tag=plot_name,
-          image=image,
-      )
+      summary.image(tag=plot_name, image=image)
 
   if show_loglinear_scatter:
     loglambda = (
@@ -188,10 +179,7 @@ def posterior_plots(
     if summary is not None:
       plot_name = f"{model_name}_loglinear_scatter"
       plot_name += suffix
-      summary.image(
-          tag=plot_name,
-          image=image,
-      )
+      summary.image(tag=plot_name, image=image)
 
 
 def plot_vmp_map(

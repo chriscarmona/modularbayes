@@ -251,30 +251,6 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   while int(state_tuple[0].step) < config.training_steps:
     summary = Summary()
 
-    # Plots to monitor training
-    if (config.log_img_steps
-        is not None) and (int(state_tuple[0].step) % config.log_img_steps == 0):
-      logging.info("\t\t Logging plots...")
-      log_images(
-          state_tuple=state_tuple,
-          prng_key=next(prng_seq),
-          config=config,
-          dataset=train_ds,
-          num_samples_plot=config.num_samples_plot,
-          flow_get_fn_nocut=flow_get_fn_nocut,
-          flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
-          summary=summary,
-          workdir_png=workdir,
-      )
-      logging.info("\t\t...done logging plots.")
-
-    # Log learning rate
-    summary.scalar(
-        tag="learning_rate",
-        value=getattr(optax, config.optim_kwargs.lr_schedule_name)(
-            **config.optim_kwargs.lr_schedule_kwargs)(int(state_tuple[0].step)),
-    )
-
     # SGD step
     state_tuple_, metrics = train_step_jit(
         state_tuple=state_tuple,
@@ -293,6 +269,13 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
           metrics["train_loss"],
       )
 
+    # Log learning rate
+    summary.scalar(
+        tag="learning_rate",
+        value=getattr(optax, config.optim_kwargs.lr_schedule_name)(
+            **config.optim_kwargs.lr_schedule_kwargs)(int(state_tuple[0].step)),
+    )
+
     # Metrics for evaluation
     if int(state_tuple[0].step) % config.eval_steps == 0:
       logging.info(
@@ -309,7 +292,24 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
       for k, v in elbo_dict.items():
         summary.scalar(tag=f"elbo_{k}", value=v.mean())
 
-    # Write metrics to tensorboard
+    # Plots to monitor during training
+    if (config.log_img_steps
+        is not None) and (int(state_tuple[0].step) % config.log_img_steps == 0):
+      logging.info("\t\t Logging plots...")
+      log_images(
+          state_tuple=state_tuple,
+          prng_key=next(prng_seq),
+          config=config,
+          dataset=train_ds,
+          num_samples_plot=config.num_samples_plot,
+          flow_get_fn_nocut=flow_get_fn_nocut,
+          flow_get_fn_cutgivennocut=flow_get_fn_cutgivennocut,
+          summary=summary,
+          workdir_png=workdir,
+      )
+      logging.info("\t\t...done logging plots.")
+
+    # Write summary to tensorboard
     tensorboard.write(summary=summary, step=int(state_tuple[0].step))
 
     for state, mngr in zip(state_tuple, orbax_ckpt_mngrs):
@@ -318,6 +318,7 @@ def train_and_evaluate(config: ConfigDict, workdir: str) -> TrainState:
   logging.info("Final training step: %i", int(state_tuple[0].step))
 
   # Last plot of posteriors
+  summary = Summary()
   log_images(
       state_tuple=state_tuple,
       prng_key=next(prng_seq),
